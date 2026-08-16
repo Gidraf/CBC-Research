@@ -25,6 +25,20 @@ BASE_DIR = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
+def render_template(request: Request, name: str, context: Optional[dict] = None):
+    ctx = context or {}
+    ctx["request"] = request
+    try:
+        # Starlette >= 0.28.0 (request is required first or keyword)
+        return templates.TemplateResponse(request=request, name=name, context=ctx)
+    except (TypeError, ValueError):
+        try:
+            # Fallback for Starlette < 0.28.0 (name, context)
+            return templates.TemplateResponse(name, ctx)
+        except Exception:
+            # Fallback positional for Starlette >= 0.28.0 (request, name, context)
+            return templates.TemplateResponse(request, name, ctx)
+
 # Startup Event: Initialize SQLite Database
 @app.on_event("startup")
 def startup_event():
@@ -39,7 +53,11 @@ def startup_event():
 # Page Route
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return render_template(request, "index.html")
+
+@app.get("/favicon.ico")
+async def favicon():
+    return HTMLResponse(status_code=204)
 
 # REST APIs
 @app.get("/api/files")
