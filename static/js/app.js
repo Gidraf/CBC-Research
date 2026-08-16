@@ -147,7 +147,95 @@ function selectFile(fileId) {
 
     renderFilesList(allFiles);
     loadSavedTextIfAvailable(fileId);
+    loadPageStatus(fileId);
     connectWebSocket(fileId);
+}
+
+let selectedPagesSet = new Set();
+let currentPageStatus = { total_pages: 67, fetched_pages: [], missing_pages: [] };
+
+async function loadPageStatus(fileId) {
+    try {
+        const resp = await fetch(`/api/files/${fileId}/page-status`);
+        if (resp.ok) {
+            currentPageStatus = await resp.json();
+            renderPageGrid(currentPageStatus);
+        }
+    } catch(e) {
+        console.warn("Failed loading page status:", e);
+    }
+}
+
+function renderPageGrid(statusObj) {
+    const badge = document.getElementById('page-summary-badge');
+    const grid = document.getElementById('page-pills-grid');
+    if (!grid) return;
+
+    const total = statusObj.total_pages || 67;
+    const fetchedSet = new Set(statusObj.fetched_pages || []);
+    
+    if (badge) {
+        badge.textContent = `Captured ${fetchedSet.size} / ${total} Pages`;
+        badge.style.color = fetchedSet.size === total ? '#4ade80' : '#38bdf8';
+    }
+
+    grid.innerHTML = '';
+    for (let p = 1; p <= total; p++) {
+        const pill = document.createElement('div');
+        const isFetched = fetchedSet.has(p);
+        const isSelected = selectedPagesSet.has(p);
+        
+        let pillClass = 'page-pill ' + (isFetched ? 'fetched' : 'missing');
+        if (isSelected) pillClass += ' selected';
+        
+        pill.className = pillClass;
+        pill.textContent = isFetched ? `P${p} ✓` : `P${p} ⏳`;
+        pill.title = isFetched ? `Page ${p} fetched` : `Page ${p} missing - click to select`;
+        
+        pill.onclick = () => {
+            if (selectedPagesSet.has(p)) {
+                selectedPagesSet.delete(p);
+            } else {
+                selectedPagesSet.add(p);
+            }
+            renderPageGrid(currentPageStatus);
+        };
+        grid.appendChild(pill);
+    }
+}
+
+function selectAllMissingPages() {
+    const missing = currentPageStatus.missing_pages || [];
+    missing.forEach(p => selectedPagesSet.add(p));
+    renderPageGrid(currentPageStatus);
+}
+
+async function fetchMissingPagesOnly() {
+    if (!currentFileId) return;
+    const pagesToFetch = Array.from(selectedPagesSet).length > 0 ? Array.from(selectedPagesSet) : (currentPageStatus.missing_pages || []);
+    if (pagesToFetch.length === 0) {
+        alert("All pages are already fetched!");
+        return;
+    }
+
+    const liveBox = document.getElementById('live-text-box');
+    if (liveBox) {
+        liveBox.value += `\n\n================================================================================\n⚡ TARGETED RESCUE FETCH FOR MISSING PAGES: [ ${pagesToFetch.join(', ')} ]\n================================================================================\n`;
+    }
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            action: "fetch_targeted_pages",
+            pages: pagesToFetch
+        }));
+    } else {
+        await fetch(`/api/files/${currentFileId}/fetch-pages`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pages: pagesToFetch })
+        });
+    }
+    selectedPagesSet.clear();
 }
 
 async function loadSavedTextIfAvailable(fileId) {
@@ -163,6 +251,7 @@ async function loadSavedTextIfAvailable(fileId) {
         }
     } catch(e) {}
 }
+
 
 
 
@@ -374,7 +463,13 @@ function connectWebSocket(fileId) {
                 liveBox.value = data.text;
                 liveBox.scrollTop = liveBox.scrollHeight;
             }
-        } else if (data.type === 'download_complete') {
+            if (data.total_pages || data.pages_captured) {
+                if (data.total_pages) currentPageStatus.total_pages = data.total_pages;
+                if (data.missing_pages) currentPageStatus.missing_pages = data.missing_pages;
+                loadPageStatus(currentFileId);
+            }
+        }
+ else if (data.type === 'download_complete') {
             alert(`✅ File Downloaded Successfully to: ${data.local_path}`);
             fetchStats();
             fetchFiles();

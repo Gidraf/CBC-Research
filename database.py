@@ -48,11 +48,20 @@ def init_db():
             cursor.execute("ALTER TABLE files ADD COLUMN last_page INTEGER DEFAULT 1;")
         except Exception:
             pass
+        try:
+            cursor.execute("ALTER TABLE files ADD COLUMN total_pages INTEGER DEFAULT 67;")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE files ADD COLUMN fetched_pages_json TEXT DEFAULT '[]';")
+        except Exception:
+            pass
 
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_file_id ON files(file_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_grade ON files(grade);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_downloaded ON files(downloaded);")
         conn.commit()
+
 
 
 
@@ -167,6 +176,21 @@ def update_file_progress(file_id: str, last_page: int = 1, last_scroll_pos: int 
         """, (last_page, last_scroll_pos, now, file_id))
         conn.commit()
     return get_file_by_id(file_id)
+
+def update_file_page_status(file_id: str, total_pages: int, fetched_pages: list) -> Optional[Dict[str, Any]]:
+    import json
+    now = datetime.now().isoformat()
+    fetched_json = json.dumps(sorted(list(set(fetched_pages))))
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE files 
+            SET total_pages = ?, fetched_pages_json = ?, updated_at = ? 
+            WHERE file_id = ?
+        """, (total_pages, fetched_json, now, file_id))
+        conn.commit()
+    return get_file_by_id(file_id)
+
 
 
 def get_stats() -> Dict[str, Any]:

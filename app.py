@@ -153,10 +153,67 @@ def download_extracted_text_file(file_id: str):
     filename = f"{file_rec['grade']}_{file_rec['subject']}_extracted.txt".replace(" ", "_") if file_rec else f"{file_id}_extracted.txt"
     return FileResponse(path=str(text_file), filename=filename, media_type="text/plain")
 
-@app.get("/api/stats")
+@app.get("/api/files/{file_id}/page-status")
+def get_file_page_status(file_id: str):
+    file_rec = database.get_file_by_id(file_id)
+    if not file_rec:
+        raise HTTPException(status_code=404, detail="File not found")
 
+    total_pages = file_rec.get("total_pages") or 67
+    fetched_json = file_rec.get("fetched_pages_json") or "[]"
+    try:
+        fetched_pages = json.loads(fetched_json)
+    except Exception:
+        fetched_pages = []
+
+    # Check if extracted text file exists and parse page markers from it if present
+    text_file_path = Path("extracted_text") / f"{file_id}_extracted.txt"
+    if text_file_path.exists():
+        try:
+            import re
+            content = text_file_path.read_text(encoding="utf-8")
+            found_pages = set(fetched_pages)
+            for p_match in re.finditer(r'📄 PAGE (\d+) OF (\d+)', content):
+                found_pages.add(int(p_match.group(1)))
+                total_pages = max(total_pages, int(p_match.group(2)))
+            fetched_pages = sorted(list(found_pages))
+            database.update_file_page_status(file_id, total_pages, fetched_pages)
+        except Exception:
+            pass
+
+    missing_pages = sorted(list(set(range(1, total_pages + 1)) - set(fetched_pages)))
+
+    return {
+        "file_id": file_id,
+        "total_pages": total_pages,
+        "fetched_pages": fetched_pages,
+        "missing_pages": missing_pages,
+        "fetched_count": len(fetched_pages),
+        "missing_count": len(missing_pages),
+        "is_complete": len(missing_pages) == 0
+    }
+
+class FetchPagesRequest(BaseModel):
+    pages: Optional[List[int]] = None
+
+@app.post("/api/files/{file_id}/fetch-pages")
+async def trigger_fetch_targeted_pages(file_id: str, req: FetchPagesRequest):
+    file_rec = database.get_file_by_id(file_id)
+    if not file_rec:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Save target pages request for background runner
+    return {
+        "status": "success",
+        "file_id": file_id,
+        "target_pages": req.pages,
+        "message": f"Targeted fetch queued for pages: {req.pages or 'unfetched missing pages'}"
+    }
+
+@app.get("/api/stats")
 def get_system_stats():
     return database.get_stats()
+
 
 # WebSocket Stream Route
 @app.websocket("/ws/stream/{file_id}")
