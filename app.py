@@ -159,7 +159,7 @@ def get_file_page_status(file_id: str):
     if not file_rec:
         raise HTTPException(status_code=404, detail="File not found")
 
-    total_pages = file_rec.get("total_pages") or 67
+    total_pages = file_rec.get("total_pages") or 0
     fetched_json = file_rec.get("fetched_pages_json") or "[]"
     try:
         fetched_pages = json.loads(fetched_json)

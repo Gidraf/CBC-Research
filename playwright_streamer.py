@@ -36,6 +36,12 @@ class PlaywrightStreamSession:
         self.accumulated_text_blocks = []
         self.seen_text_hashes = set()
 
+    async def _send_ws_json(self, data: dict):
+        if self.websocket:
+            try:
+                await self.websocket.send_json(data)
+            except Exception:
+                pass
 
     async def start(self):
         self.is_running = True
@@ -57,7 +63,7 @@ class PlaywrightStreamSession:
 
         except Exception as e:
             logger.error(f"Error starting Playwright session: {e}")
-            await self.websocket.send_json({"type": "error", "message": str(e)})
+            await self._send_ws_json({"type": "error", "message": str(e)})
 
     async def _create_context(self):
         if self.context:
@@ -82,7 +88,7 @@ class PlaywrightStreamSession:
             database.mark_as_downloaded(self.file_id, str(save_path), file_size)
             logger.info(f"File downloaded via Playwright -> {save_path}")
 
-            await self.websocket.send_json({
+            await self._send_ws_json({
                 "type": "download_complete",
                 "file_id": self.file_id,
                 "local_path": str(save_path),
@@ -96,37 +102,17 @@ class PlaywrightStreamSession:
             return
         self.is_auto_scrolling = True
         
-        await self.websocket.send_json({
+        await self._send_ws_json({
             "type": "status",
-            "message": "Warming up: Pre-scrolling to bottom (3 passes) to force Google Drive to lazy-load all pages...",
+            "message": "Warming up: Pre-scrolling to bottom to force Google Drive to lazy-load pages...",
             "auto_scrolling": True
         })
 
-        # 3-Pass Pre-Scroll Warmup to trigger lazy-loading of all PDF pages in Google Drive
+        # Dynamic pre-flight sweep
         if self.page:
             try:
-                for pass_num in range(1, 4):
-                    await self.page.evaluate("""() => {
-                        window.scrollTo(0, document.body ? document.body.scrollHeight : 100000);
-                        let scrollables = document.querySelectorAll('div, iframe, body, [role="main"], [tabindex="0"], .ndfHFb-c4Qvld');
-                        scrollables.forEach(el => {
-                            try { el.scrollTop = el.scrollHeight; } catch(e) {}
-                        });
-                        let iframes = document.querySelectorAll('iframe');
-                        iframes.forEach(iframe => {
-                            try {
-                                let iWin = iframe.contentWindow;
-                                let iDoc = iframe.contentDocument || iWin.document;
-                                if (iWin) iWin.scrollTo(0, 100000);
-                                if (iDoc) {
-                                    if (iDoc.body) iDoc.body.scrollTop = iDoc.body.scrollHeight;
-                                    let iScrolls = iDoc.querySelectorAll('div, [role="main"]');
-                                    iScrolls.forEach(el => el.scrollTop = el.scrollHeight);
-                                }
-                            } catch(e) {}
-                        });
-                    }""")
-                    await asyncio.sleep(0.4)
+                await self.page.evaluate("""() => window.scrollTo(0, document.body ? document.body.scrollHeight : 100000);""")
+                await asyncio.sleep(0.4)
             except Exception as warmup_err:
                 logger.warning(f"Warmup scroll warning: {warmup_err}")
 
@@ -137,25 +123,26 @@ class PlaywrightStreamSession:
         if self.auto_scroll_task:
             self.auto_scroll_task.cancel()
             self.auto_scroll_task = None
-        await self.websocket.send_json({
+        await self._send_ws_json({
             "type": "status",
             "message": "Auto-scrolling paused.",
             "auto_scrolling": False
         })
+
 
     async def _auto_scroll_loop(self):
         self.temp_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Starting explicit Page-Checklist State Machine for {self.file_id}")
         
         page_map: Dict[int, List[str]] = {}
-        total_pages = 67  # Default, updated dynamically from DOM
+        total_pages = 0
 
         # -------------------------------------------------------------------------
-        # STEP 1: Pre-flight Sweep to Bottom to Discover Exact Total Page Count
+        # STEP 1: Pre-flight Sweep to Bottom & Dynamic Page Count Discovery
         # -------------------------------------------------------------------------
         if self.page:
             try:
-                logger.info("Executing pre-flight sweep to bottom to read last page number...")
+                logger.info("Executing pre-flight sweep to bottom to read dynamic total page count...")
                 await self.page.evaluate("""() => {
                     window.scrollTo(0, document.body ? document.body.scrollHeight : 100000);
                     let scrollables = document.querySelectorAll('div, iframe, body, [role="main"], [tabindex="0"], .ndfHFb-c4Qvld');
@@ -164,25 +151,41 @@ class PlaywrightStreamSession:
                 await asyncio.sleep(1.0)
 
                 detected_total = await self.page.evaluate("""() => {
-                    let match = document.body ? document.body.innerText.match(/Page\\s+\\d+\\s+of\\s+(\\d+)/i) : null;
-                    if (match) return parseInt(match[1]);
+                    function extractMaxPage(str) {
+                        if (!str) return 0;
+                        let matches = str.matchAll(/(?:Page\\s+\\d+|\\b\\d+)\\s*(?:of|\\/)\\s*(\\d+)/gi);
+                        let maxP = 0;
+                        for (let m of matches) {
+                            let val = parseInt(m[1]);
+                            if (val > maxP && val < 2000) maxP = val;
+                        }
+                        return maxP;
+                    }
+
+                    let p = extractMaxPage(document.body ? document.body.innerText : '');
                     let iframes = document.querySelectorAll('iframe');
                     for (let iframe of iframes) {
                         try {
                             let iDoc = iframe.contentDocument || iframe.contentWindow.document;
                             if (iDoc && iDoc.body) {
-                                let iMatch = iDoc.body.innerText.match(/Page\\s+\\d+\\s+of\\s+(\\d+)/i);
-                                if (iMatch) return parseInt(iMatch[1]);
+                                let ip = extractMaxPage(iDoc.body.innerText);
+                                if (ip > p) p = ip;
                             }
                         } catch(e) {}
                     }
-                    return 67;
+                    return p;
                 }""")
+
                 if detected_total and detected_total > 0:
                     total_pages = detected_total
-                    logger.info(f"VERIFIED DOCUMENT TOTAL PAGES: {total_pages}")
+                    logger.info(f"DYNAMICALLY DETECTED DOCUMENT TOTAL PAGES: {total_pages}")
             except Exception as det_err:
                 logger.warning(f"Pre-flight page detection warning: {det_err}")
+
+        # Fallback to dynamic loop page detection if initial detection was 0
+        if total_pages <= 0:
+            total_pages = 50  # Dynamic starting estimate, updated continuously
+
 
         # Reset scroll back to top to begin systematic page checklist sweep
         if self.page:
@@ -263,9 +266,16 @@ class PlaywrightStreamSession:
                     current_p = self.last_page
 
                     for line in raw_lines:
-                        p_match = re.search(r'Page\s+(\d+)\s+of\s+(\d+)', line, re.IGNORECASE)
+                        p_match = re.search(r'(?:Page\s+(\d+)|\b(\d+))\s*(?:of|\/)\s*(\d+)', line, re.IGNORECASE)
                         if p_match:
-                            current_p = int(p_match.group(1))
+                            cur_page_val = int(p_match.group(1) or p_match.group(2))
+                            tot_page_val = int(p_match.group(3))
+                            if 0 < cur_page_val <= 2000 and 0 < tot_page_val <= 2000:
+                                current_p = cur_page_val
+                                if tot_page_val > total_pages:
+                                    total_pages = tot_page_val
+                                    required_pages = set(range(1, total_pages + 1))
+                                    logger.info(f"Dynamically updated total page count to {total_pages}")
 
                         if current_p not in page_map:
                             page_map[current_p] = []
@@ -290,6 +300,8 @@ class PlaywrightStreamSession:
                         text_file_path.write_text(accumulated_full_text, encoding="utf-8")
                         database.update_extracted_text(self.file_id, str(text_file_path))
                         database.update_file_progress(self.file_id, self.last_page, self.last_scroll_pos)
+                        database.update_file_page_status(self.file_id, total_pages, list(captured_pages))
+
 
                         try:
                             if self.websocket:

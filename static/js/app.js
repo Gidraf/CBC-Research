@@ -152,7 +152,7 @@ function selectFile(fileId) {
 }
 
 let selectedPagesSet = new Set();
-let currentPageStatus = { total_pages: 67, fetched_pages: [], missing_pages: [] };
+let currentPageStatus = { total_pages: 0, fetched_pages: [], missing_pages: [] };
 
 async function loadPageStatus(fileId) {
     try {
@@ -171,16 +171,22 @@ function renderPageGrid(statusObj) {
     const grid = document.getElementById('page-pills-grid');
     if (!grid) return;
 
-    const total = statusObj.total_pages || 67;
+    const total = statusObj.total_pages || 0;
     const fetchedSet = new Set(statusObj.fetched_pages || []);
     
     if (badge) {
-        badge.textContent = `Captured ${fetchedSet.size} / ${total} Pages`;
-        badge.style.color = fetchedSet.size === total ? '#4ade80' : '#38bdf8';
+        if (total === 0) {
+            badge.textContent = `Captured ${fetchedSet.size} Pages (Detecting total...)`;
+            badge.style.color = '#fbbf24';
+        } else {
+            badge.textContent = `Captured ${fetchedSet.size} / ${total} Pages`;
+            badge.style.color = (fetchedSet.size >= total && total > 0) ? '#4ade80' : '#38bdf8';
+        }
     }
 
     grid.innerHTML = '';
-    for (let p = 1; p <= total; p++) {
+    const renderLimit = total > 0 ? total : Math.max(fetchedSet.size, 1);
+    for (let p = 1; p <= renderLimit; p++) {
         const pill = document.createElement('div');
         const isFetched = fetchedSet.has(p);
         const isSelected = selectedPagesSet.has(p);
@@ -203,6 +209,7 @@ function renderPageGrid(statusObj) {
         grid.appendChild(pill);
     }
 }
+
 
 function selectAllMissingPages() {
     const missing = currentPageStatus.missing_pages || [];
