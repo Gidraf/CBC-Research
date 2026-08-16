@@ -145,138 +145,173 @@ class PlaywrightStreamSession:
 
     async def _auto_scroll_loop(self):
         self.temp_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Starting independent background multi-pass scroll loop for {self.file_id}")
+        logger.info(f"Starting page-targeted verified scroll loop for {self.file_id}")
         
-        step_delta = 600
-        pass_count = 0
+        page_map: Dict[int, List[str]] = {}
+        total_pages = 67  # Default, updated dynamically from DOM
 
-        while self.is_auto_scrolling and self.page and self.is_running and pass_count < 100:
-            pass_count += 1
-            direction = 1 if pass_count % 2 == 1 else -1  # Odd pass = Down, Even pass = Up!
-            dir_label = "Downward" if direction == 1 else "Upward"
-            
-            logger.info(f"Session {self.file_id} starting Pass {pass_count}/100 ({dir_label} sweep)")
+        # 1. Detect total pages from document
+        if self.page:
+            try:
+                detected_total = await self.page.evaluate("""() => {
+                    let match = document.body ? document.body.innerText.match(/Page\\s+\\d+\\s+of\\s+(\\d+)/i) : null;
+                    if (match) return parseInt(match[1]);
+                    let iframes = document.querySelectorAll('iframe');
+                    for (let iframe of iframes) {
+                        try {
+                            let iDoc = iframe.contentDocument || iframe.contentWindow.document;
+                            if (iDoc && iDoc.body) {
+                                let iMatch = iDoc.body.innerText.match(/Page\\s+\\d+\\s+of\\s+(\\d+)/i);
+                                if (iMatch) return parseInt(iMatch[1]);
+                            }
+                        } catch(e) {}
+                    }
+                    return 67;
+                }""")
 
-            # Perform 40 steps per pass (sweeping full document depth)
-            for step_idx in range(1, 41):
-                if not self.is_auto_scrolling or not self.is_running:
-                    break
+                if detected_total and detected_total > 0:
+                    total_pages = detected_total
+                    logger.info(f"Detected document total page count: {total_pages}")
+            except Exception as det_err:
+                logger.warning(f"Page count detection warning: {det_err}")
 
-                self.screenshot_count += 1
-                scroll_amount = step_delta * direction
+        step_delta = 750
+        max_steps = max(total_pages * 2, 80)
 
-                if direction == 1:
-                    self.last_scroll_pos += step_delta
-                else:
-                    self.last_scroll_pos = max(0, self.last_scroll_pos - step_delta)
+        for step in range(1, max_steps + 1):
+            if not self.is_auto_scrolling or not self.is_running:
+                break
 
-                self.last_page = max(1, (self.last_scroll_pos // 600) + 1)
+            self.screenshot_count += 1
+            current_target_page = min(total_pages, (step // 2) + 1)
+            scroll_amount = step_delta
 
-                # 1. Scroll outer window & inner GDrive containers by step_amount
-                try:
-                    await self.page.evaluate("""(delta) => {
-                        window.scrollBy(0, delta);
-                        if (document.body) document.body.scrollTop += delta;
-                        if (document.documentElement) document.documentElement.scrollTop += delta;
+            self.last_scroll_pos += scroll_amount
+            self.last_page = current_target_page
 
-                        let scrollables = document.querySelectorAll('div, iframe, body, [role="main"], [tabindex="0"], .ndfHFb-c4Qvld');
-                        scrollables.forEach(el => {
-                            try {
-                                if (el.scrollHeight > el.clientHeight) el.scrollTop += delta;
-                            } catch(e) {}
-                        });
+            # Scroll step
+            try:
+                await self.page.evaluate("""(delta) => {
+                    window.scrollBy(0, delta);
+                    if (document.body) document.body.scrollTop += delta;
+                    if (document.documentElement) document.documentElement.scrollTop += delta;
 
-                        let iframes = document.querySelectorAll('iframe');
-                        iframes.forEach(iframe => {
-                            try {
-                                let iWin = iframe.contentWindow;
-                                let iDoc = iframe.contentDocument || iWin.document;
-                                if (iWin) iWin.scrollBy(0, delta);
-                                if (iDoc) {
-                                    if (iDoc.body) iDoc.body.scrollTop += delta;
-                                    if (iDoc.documentElement) iDoc.documentElement.scrollTop += delta;
-                                    let iScrolls = iDoc.querySelectorAll('div, [role="main"]');
-                                    iScrolls.forEach(el => {
-                                        if (el.scrollHeight > el.clientHeight) el.scrollTop += delta;
-                                    });
-                                }
-                            } catch(e) {}
-                        });
-                    }""", scroll_amount)
-                except Exception as scroll_err:
-                    logger.warning(f"Scroll step warning: {scroll_err}")
+                    let scrollables = document.querySelectorAll('div, iframe, body, [role="main"], [tabindex="0"], .ndfHFb-c4Qvld');
+                    scrollables.forEach(el => {
+                        try {
+                            if (el.scrollHeight > el.clientHeight) el.scrollTop += delta;
+                        } catch(e) {}
+                    });
 
-                # 2. Extract DOM innerText from current view
-                try:
-                    step_text = await self.page.evaluate("""() => {
-                        let parts = [];
-                        if (document.body && document.body.innerText) parts.push(document.body.innerText);
-                        let iframes = document.querySelectorAll('iframe');
-                        iframes.forEach((iframe) => {
-                            try {
-                                let iDoc = iframe.contentDocument || iframe.contentWindow.document;
-                                if (iDoc && iDoc.body && iDoc.body.innerText) parts.push(iDoc.body.innerText);
-                            } catch(e) {}
-                        });
-                        return parts.join('\\n\\n');
-                    }""")
+                    let iframes = document.querySelectorAll('iframe');
+                    iframes.forEach(iframe => {
+                        try {
+                            let iWin = iframe.contentWindow;
+                            let iDoc = iframe.contentDocument || iWin.document;
+                            if (iWin) iWin.scrollBy(0, delta);
+                            if (iDoc) {
+                                if (iDoc.body) iDoc.body.scrollTop += delta;
+                                if (iDoc.documentElement) iDoc.documentElement.scrollTop += delta;
+                                let iScrolls = iDoc.querySelectorAll('div, [role="main"]');
+                                iScrolls.forEach(el => {
+                                    if (el.scrollHeight > el.clientHeight) el.scrollTop += delta;
+                                });
+                            }
+                        } catch(e) {}
+                    });
+                }""", scroll_amount)
+            except Exception as scroll_err:
+                logger.warning(f"Scroll step warning: {scroll_err}")
 
-                    if step_text and len(step_text.strip()) > 10:
-                        clean_blocks = [b.strip() for b in step_text.split('\n\n') if len(b.strip()) > 15]
-                        for block in clean_blocks:
-                            b_hash = hash(block[:150] + str(len(block)))
-                            if b_hash not in self.seen_text_hashes:
-                                self.seen_text_hashes.add(b_hash)
-                                self.accumulated_text_blocks.append(block)
+            # Extract raw DOM text
+            try:
+                step_text = await self.page.evaluate("""() => {
+                    let parts = [];
+                    if (document.body && document.body.innerText) parts.push(document.body.innerText);
+                    let iframes = document.querySelectorAll('iframe');
+                    iframes.forEach((iframe) => {
+                        try {
+                            let iDoc = iframe.contentDocument || iframe.contentWindow.document;
+                            if (iDoc && iDoc.body && iDoc.body.innerText) parts.push(iDoc.body.innerText);
+                        } catch(e) {}
+                    });
+                    return parts.join('\\n\\n');
+                }""")
 
-                        # CONTINUOUS DISK & SQLITE PERSISTENCE IN BACKGROUND
-                        if self.accumulated_text_blocks:
-                            accumulated_full_text = "\n\n================================================================================\n\n".join(self.accumulated_text_blocks)
-                            text_file_path = Path("extracted_text") / f"{self.file_id}_extracted.txt"
-                            text_file_path.write_text(accumulated_full_text, encoding="utf-8")
-                            database.update_extracted_text(self.file_id, str(text_file_path))
-                            database.update_file_progress(self.file_id, self.last_page, self.last_scroll_pos)
+                if step_text and len(step_text.strip()) > 10:
+                    import re
+                    # Parse page headers from text (e.g. Page X of 67)
+                    raw_lines = [l.strip() for l in step_text.split('\n') if l.strip()]
+                    current_p = current_target_page
 
-                            # Notify WebSocket client if still connected (safely ignored if reloaded/disconnected)
-                            try:
-                                if self.websocket:
-                                    await self.websocket.send_json({
-                                        "type": "live_text",
-                                        "file_id": self.file_id,
-                                        "text": accumulated_full_text,
-                                        "step": self.screenshot_count,
-                                        "pass": pass_count,
-                                        "direction": dir_label,
-                                        "last_page": self.last_page,
-                                        "last_scroll_pos": self.last_scroll_pos
-                                    })
-                            except Exception:
-                                pass
+                    for line in raw_lines:
+                        p_match = re.search(r'Page\s+(\d+)\s+of\s+(\d+)', line, re.IGNORECASE)
+                        if p_match:
+                            current_p = int(p_match.group(1))
 
-                except Exception as text_err:
-                    logger.warning(f"Live text extraction step warning: {text_err}")
+                        if current_p not in page_map:
+                            page_map[current_p] = []
 
-                # 3. 1.0-Second Lapse to give browser time to load pages cleanly
-                await asyncio.sleep(1.0)
+                        # Avoid exact line duplicates on the same page
+                        if line not in page_map[current_p] and not line.startswith("==="):
+                            page_map[current_p].append(line)
 
+                    # Build clean, structured multi-page document text
+                    formatted_pages = []
+                    sorted_pages = sorted(page_map.keys())
+                    for p in sorted_pages:
+                        p_content = "\n".join(page_map[p])
+                        if p_content.strip():
+                            formatted_pages.append(f"================================================================================\n📄 PAGE {p} OF {total_pages}\n================================================================================\n\n{p_content}")
+
+                    if formatted_pages:
+                        accumulated_full_text = "\n\n".join(formatted_pages)
+                        text_file_path = Path("extracted_text") / f"{self.file_id}_extracted.txt"
+                        text_file_path.write_text(accumulated_full_text, encoding="utf-8")
+                        database.update_extracted_text(self.file_id, str(text_file_path))
+                        database.update_file_progress(self.file_id, self.last_page, self.last_scroll_pos)
+
+                        # Notify WebSocket client safely
+                        try:
+                            if self.websocket:
+                                await self.websocket.send_json({
+                                    "type": "live_text",
+                                    "file_id": self.file_id,
+                                    "text": accumulated_full_text,
+                                    "step": self.screenshot_count,
+                                    "pages_captured": len(page_map),
+                                    "total_pages": total_pages,
+                                    "last_page": self.last_page,
+                                    "last_scroll_pos": self.last_scroll_pos
+                                })
+                        except Exception:
+                            pass
+
+            except Exception as text_err:
+                logger.warning(f"Live text extraction step warning: {text_err}")
+
+            # Paced lapse: 1.0 second per step for clean DOM rendering
+            await asyncio.sleep(1.0)
 
 
     async def finish_and_extract_text(self):
         await self.stop_auto_scroll()
         await self.websocket.send_json({
             "type": "status",
-            "message": "Extracting document text from accumulated DOM pages & screenshots...",
+            "message": "Finalizing clean multi-page document structure...",
             "extracting": True
         })
 
-        # Combine all accumulated text blocks from Pages 1 through 67!
-        dom_text = "\n\n================================================================================\n\n".join(self.accumulated_text_blocks)
-        
+        # Load existing clean text file or fallback to DOM
+        text_file_path = Path("extracted_text") / f"{self.file_id}_extracted.txt"
+        dom_text = text_file_path.read_text(encoding="utf-8") if text_file_path.exists() else ""
+
         if not dom_text and self.page:
             try:
                 dom_text = await self.page.evaluate("""() => document.body ? document.body.innerText : ''""")
             except Exception:
                 pass
+
 
         # Process text extraction via Celery / background worker
 
