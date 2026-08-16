@@ -97,6 +97,11 @@
                             <span class="status-indicator" id="js-status-pill">No-JS ACTIVE</span>
                         </button>
 
+                        <!-- EXPLICIT DOWNLOAD NO-JS BUTTON -->
+                        <button id="btn-download-nojs" class="btn btn-download-action" onclick="downloadActiveFileNoJS()">
+                            <span class="icon">📥</span> Download PDF (No-JS)
+                        </button>
+
                         <button id="btn-mark-done" class="btn btn-success" onclick="markActiveFileDone()">
                             <span class="icon">✅</span> Mark as Done
                         </button>
@@ -118,7 +123,7 @@
                     
                     <div class="stream-footer">
                         <span id="stream-url-display">URL: disconnected</span>
-                        <span class="keyboard-hint">💡 Tip: Right-click inside view for options or to mark done</span>
+                        <span class="keyboard-hint">💡 Tip: Click "Disable JavaScript" or "Download PDF (No-JS)" to bypass GDrive viewer</span>
                     </div>
                 </div>
             </main>
@@ -130,6 +135,9 @@
         <div class="menu-header">Playwright View Actions</div>
         <div class="menu-item highlight" onclick="contextMarkDone()">
             <span class="menu-icon">✅</span> Mark File as Done (Downloaded)
+        </div>
+        <div class="menu-item highlight-blue" onclick="contextDownloadNoJS()">
+            <span class="menu-icon">📥</span> Download PDF File (No-JS Direct)
         </div>
         <div class="menu-divider"></div>
         <div class="menu-item" onclick="contextToggleJS()">

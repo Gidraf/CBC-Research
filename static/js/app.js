@@ -103,10 +103,13 @@ function renderFilesList(files) {
                 <div class="file-id-text">ID: ${f.file_id}</div>
                 <div class="card-actions">
                     <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); selectFile('${f.file_id}')">
-                        👁️ View Stream
+                        👁️ Stream
+                    </button>
+                    <button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); downloadFileNoJS('${f.file_id}')">
+                        📥 Download PDF
                     </button>
                     <button class="btn btn-sm ${isDownloaded ? 'btn-secondary' : 'btn-success'}" onclick="event.stopPropagation(); toggleMarkDone('${f.file_id}')">
-                        ${isDownloaded ? 'Undo Done' : '✅ Mark Done'}
+                        ${isDownloaded ? 'Done' : '✅ Mark'}
                     </button>
                 </div>
             </div>
@@ -129,49 +132,33 @@ function selectFile(fileId) {
     connectWebSocket(fileId);
 }
 
-// Extract All Files
-async function extractAllFiles() {
-    const btn = document.getElementById('btn-extract');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;"></span> Extracting...';
+// Direct No-JS Downloader Function
+async function downloadFileNoJS(fileId) {
+    streamOverlay.classList.remove('hidden');
+    overlayStatusText.textContent = `Downloading No-JS PDF for ${fileId}...`;
     try {
-        const resp = await fetch('/api/extract', { method: 'POST' });
-        const res = await resp.json();
-        alert(`Extraction Complete! Processed ${res.count} files.`);
-        await fetchStats();
-        await fetchFiles();
+        const resp = await fetch(`/api/files/${fileId}/download-nojs`, { method: 'POST' });
+        if (resp.ok) {
+            const data = await resp.json();
+            alert(`✅ Download Complete!\nFile saved to: ${data.local_path || 'downloads/'}`);
+            await fetchStats();
+            await fetchFiles();
+        } else {
+            alert('⚠️ Download failed or restricted by Google Drive permissions.');
+        }
     } catch (e) {
-        alert('Extraction failed: ' + e.message);
+        alert('Error initiating download: ' + e.message);
     } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<span class="icon">🔍</span> Extract KICD Links';
+        streamOverlay.classList.add('hidden');
     }
 }
 
-// Add Custom GDrive Link
-async function addCustomUrl() {
-    const input = document.getElementById('custom-url-input');
-    const val = input.value.trim();
-    if (!val) return;
-
-    try {
-        const resp = await fetch('/api/files/add-custom', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url_or_id: val })
-        });
-        if (resp.ok) {
-            const added = await resp.json();
-            input.value = '';
-            await fetchStats();
-            await fetchFiles();
-            selectFile(added.file_id);
-        } else {
-            alert('Could not add URL. Ensure it is a valid Google Drive file link.');
-        }
-    } catch (e) {
-        alert('Error adding URL: ' + e.message);
+async function downloadActiveFileNoJS() {
+    if (!currentFileId) {
+        alert('Please select a file first.');
+        return;
     }
+    await downloadFileNoJS(currentFileId);
 }
 
 // Toggle Mark Done
@@ -189,6 +176,7 @@ async function markActiveFileDone() {
     if (!currentFileId) return;
     await toggleMarkDone(currentFileId);
 }
+
 
 // WebSocket Connection & Playwright Live Stream
 function connectWebSocket(fileId) {
@@ -340,7 +328,13 @@ function contextMarkDone() {
     markActiveFileDone();
 }
 
+function contextDownloadNoJS() {
+    contextMenu.style.display = 'none';
+    downloadActiveFileNoJS();
+}
+
 function contextToggleJS() {
+
     contextMenu.style.display = 'none';
     toggleJS();
 }

@@ -5,8 +5,10 @@ import time
 import urllib.request
 import urllib.parse
 import urllib.error
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 import database
+
 
 GRADE_PAGES = [
     {"grade": "Pre-Primary 1 (PP1)",           "slug": "pre-primary",                  "page_id": 7804,  "url": "https://kicd.ac.ke/cbc-materials/pre-primary/",                                            "subject_filter": "Pre-Primary 1"},
