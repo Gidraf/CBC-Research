@@ -145,14 +145,24 @@ class PlaywrightStreamSession:
 
     async def _auto_scroll_loop(self):
         self.temp_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Starting page-targeted verified scroll loop for {self.file_id}")
+        logger.info(f"Starting explicit Page-Checklist State Machine for {self.file_id}")
         
         page_map: Dict[int, List[str]] = {}
         total_pages = 67  # Default, updated dynamically from DOM
 
-        # 1. Detect total pages from document
+        # -------------------------------------------------------------------------
+        # STEP 1: Pre-flight Sweep to Bottom to Discover Exact Total Page Count
+        # -------------------------------------------------------------------------
         if self.page:
             try:
+                logger.info("Executing pre-flight sweep to bottom to read last page number...")
+                await self.page.evaluate("""() => {
+                    window.scrollTo(0, document.body ? document.body.scrollHeight : 100000);
+                    let scrollables = document.querySelectorAll('div, iframe, body, [role="main"], [tabindex="0"], .ndfHFb-c4Qvld');
+                    scrollables.forEach(el => { try { el.scrollTop = el.scrollHeight; } catch(e) {} });
+                }""")
+                await asyncio.sleep(1.0)
+
                 detected_total = await self.page.evaluate("""() => {
                     let match = document.body ? document.body.innerText.match(/Page\\s+\\d+\\s+of\\s+(\\d+)/i) : null;
                     if (match) return parseInt(match[1]);
@@ -168,26 +178,35 @@ class PlaywrightStreamSession:
                     }
                     return 67;
                 }""")
-
                 if detected_total and detected_total > 0:
                     total_pages = detected_total
-                    logger.info(f"Detected document total page count: {total_pages}")
+                    logger.info(f"VERIFIED DOCUMENT TOTAL PAGES: {total_pages}")
             except Exception as det_err:
-                logger.warning(f"Page count detection warning: {det_err}")
+                logger.warning(f"Pre-flight page detection warning: {det_err}")
 
+        # Reset scroll back to top to begin systematic page checklist sweep
+        if self.page:
+            try:
+                await self.page.evaluate("""() => window.scrollTo(0, 0);""")
+                await asyncio.sleep(0.5)
+            except Exception:
+                pass
+
+        required_pages = set(range(1, total_pages + 1))
         step_delta = 750
-        max_steps = max(total_pages * 2, 80)
 
+        # -------------------------------------------------------------------------
+        # STEP 2: Systematic Primary Sweep from Top to Bottom
+        # -------------------------------------------------------------------------
+        max_steps = total_pages + 10
         for step in range(1, max_steps + 1):
             if not self.is_auto_scrolling or not self.is_running:
                 break
 
             self.screenshot_count += 1
-            current_target_page = min(total_pages, (step // 2) + 1)
-            scroll_amount = step_delta
-
-            self.last_scroll_pos += scroll_amount
-            self.last_page = current_target_page
+            scroll_pos = (step - 1) * step_delta
+            self.last_scroll_pos = scroll_pos
+            self.last_page = min(total_pages, step)
 
             # Scroll step
             try:
@@ -219,11 +238,11 @@ class PlaywrightStreamSession:
                             }
                         } catch(e) {}
                     });
-                }""", scroll_amount)
+                }""", step_delta)
             except Exception as scroll_err:
                 logger.warning(f"Scroll step warning: {scroll_err}")
 
-            # Extract raw DOM text
+            # Extract raw DOM text & update page checklist map
             try:
                 step_text = await self.page.evaluate("""() => {
                     let parts = [];
@@ -240,9 +259,8 @@ class PlaywrightStreamSession:
 
                 if step_text and len(step_text.strip()) > 10:
                     import re
-                    # Parse page headers from text (e.g. Page X of 67)
                     raw_lines = [l.strip() for l in step_text.split('\n') if l.strip()]
-                    current_p = current_target_page
+                    current_p = self.last_page
 
                     for line in raw_lines:
                         p_match = re.search(r'Page\s+(\d+)\s+of\s+(\d+)', line, re.IGNORECASE)
@@ -252,14 +270,16 @@ class PlaywrightStreamSession:
                         if current_p not in page_map:
                             page_map[current_p] = []
 
-                        # Avoid exact line duplicates on the same page
                         if line not in page_map[current_p] and not line.startswith("==="):
                             page_map[current_p].append(line)
 
-                    # Build clean, structured multi-page document text
+                    # Calculate missing pages
+                    captured_pages = set(page_map.keys())
+                    missing_pages = sorted(list(required_pages - captured_pages))
+
+                    # Save continuous progress
                     formatted_pages = []
-                    sorted_pages = sorted(page_map.keys())
-                    for p in sorted_pages:
+                    for p in sorted(page_map.keys()):
                         p_content = "\n".join(page_map[p])
                         if p_content.strip():
                             formatted_pages.append(f"================================================================================\n📄 PAGE {p} OF {total_pages}\n================================================================================\n\n{p_content}")
@@ -271,7 +291,6 @@ class PlaywrightStreamSession:
                         database.update_extracted_text(self.file_id, str(text_file_path))
                         database.update_file_progress(self.file_id, self.last_page, self.last_scroll_pos)
 
-                        # Notify WebSocket client safely
                         try:
                             if self.websocket:
                                 await self.websocket.send_json({
@@ -279,8 +298,9 @@ class PlaywrightStreamSession:
                                     "file_id": self.file_id,
                                     "text": accumulated_full_text,
                                     "step": self.screenshot_count,
-                                    "pages_captured": len(page_map),
+                                    "pages_captured": len(captured_pages),
                                     "total_pages": total_pages,
+                                    "missing_pages": missing_pages,
                                     "last_page": self.last_page,
                                     "last_scroll_pos": self.last_scroll_pos
                                 })
@@ -290,8 +310,75 @@ class PlaywrightStreamSession:
             except Exception as text_err:
                 logger.warning(f"Live text extraction step warning: {text_err}")
 
-            # Paced lapse: 1.0 second per step for clean DOM rendering
             await asyncio.sleep(1.0)
+
+        # -------------------------------------------------------------------------
+        # STEP 3: Targeted Missing Page Rescue Sweeps
+        # -------------------------------------------------------------------------
+        captured_pages = set(page_map.keys())
+        missing_pages = sorted(list(required_pages - captured_pages))
+
+        if missing_pages and self.is_auto_scrolling and self.is_running:
+            logger.info(f"Targeting missing pages rescue sweep: {missing_pages}")
+            for target_missing_p in missing_pages:
+                if not self.is_auto_scrolling or not self.is_running:
+                    break
+
+                target_y = (target_missing_p - 1) * 800
+                logger.info(f"Targeted jump to missing Page {target_missing_p} (y={target_y})")
+
+                try:
+                    await self.page.evaluate(f"""(yPos) => {{
+                        window.scrollTo(0, yPos);
+                        if (document.body) document.body.scrollTop = yPos;
+                        let scrollables = document.querySelectorAll('div, iframe, body, [role="main"], .ndfHFb-c4Qvld');
+                        scrollables.forEach(el => {{ try {{ el.scrollTop = yPos; }} catch(e) {{}} }});
+                    }}""", target_y)
+                    await asyncio.sleep(1.2)
+
+                    step_text = await self.page.evaluate("""() => {
+                        let parts = [];
+                        if (document.body && document.body.innerText) parts.push(document.body.innerText);
+                        let iframes = document.querySelectorAll('iframe');
+                        iframes.forEach((iframe) => {
+                            try {
+                                let iDoc = iframe.contentDocument || iframe.contentWindow.document;
+                                if (iDoc && iDoc.body && iDoc.body.innerText) parts.push(iDoc.body.innerText);
+                            } catch(e) {}
+                        });
+                        return parts.join('\\n\\n');
+                    }""")
+
+                    if step_text:
+                        import re
+                        raw_lines = [l.strip() for l in step_text.split('\n') if l.strip()]
+                        cur_p = target_missing_p
+                        for line in raw_lines:
+                            p_match = re.search(r'Page\s+(\d+)\s+of\s+(\d+)', line, re.IGNORECASE)
+                            if p_match:
+                                cur_p = int(p_match.group(1))
+
+                            if cur_p not in page_map:
+                                page_map[cur_p] = []
+
+                            if line not in page_map[cur_p] and not line.startswith("==="):
+                                page_map[cur_p].append(line)
+
+                        formatted_pages = []
+                        for p in sorted(page_map.keys()):
+                            p_content = "\n".join(page_map[p])
+                            if p_content.strip():
+                                formatted_pages.append(f"================================================================================\n📄 PAGE {p} OF {total_pages}\n================================================================================\n\n{p_content}")
+
+                        if formatted_pages:
+                            accumulated_full_text = "\n\n".join(formatted_pages)
+                            text_file_path = Path("extracted_text") / f"{self.file_id}_extracted.txt"
+                            text_file_path.write_text(accumulated_full_text, encoding="utf-8")
+                            database.update_extracted_text(self.file_id, str(text_file_path))
+
+                except Exception as rescue_err:
+                    logger.warning(f"Rescue sweep warning for page {target_missing_p}: {rescue_err}")
+
 
 
     async def finish_and_extract_text(self):
