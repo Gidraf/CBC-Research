@@ -116,6 +116,11 @@
                             <span class="icon">✅</span> Mark Done
                         </button>
                         
+                        <!-- OPEN IN GDRIVE TAB BUTTON -->
+                        <a id="btn-open-gdrive" href="#" target="_blank" class="btn btn-secondary" style="text-decoration:none;">
+                            <span class="icon">🔗</span> Open in GDrive
+                        </a>
+
                         <button id="btn-reload" class="btn btn-secondary" onclick="reloadStream()">
                             <span class="icon">🔄</span> Reload
                         </button>
@@ -133,7 +138,7 @@
                     
                     <div class="stream-footer">
                         <span id="stream-url-display">URL: disconnected</span>
-                        <span class="keyboard-hint">💡 Tip: Click "Auto-Scroll" to record screens, then "Finish & Extract Text" when done.</span>
+                        <span class="keyboard-hint">💡 Tip: Click "Open in GDrive" to open the raw link in a new browser tab.</span>
                     </div>
                 </div>
             </main>
@@ -152,7 +157,11 @@
         <div class="menu-item highlight-blue" onclick="contextDownloadNoJS()">
             <span class="menu-icon">📥</span> Download PDF File (No-JS Direct)
         </div>
+        <div class="menu-item" onclick="contextOpenGDrive()">
+            <span class="menu-icon">🔗</span> Open Google Drive Link in New Tab
+        </div>
         <div class="menu-divider"></div>
+
         <div class="menu-item" onclick="contextToggleAutoScroll()">
             <span class="menu-icon">▶️</span> Toggle Auto-Scroll
         </div>

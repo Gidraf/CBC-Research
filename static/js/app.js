@@ -105,6 +105,9 @@ function renderFilesList(files) {
                     <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); selectFile('${f.file_id}')">
                         👁️ Stream
                     </button>
+                    <a href="${f.google_drive_url || `https://drive.google.com/file/d/${f.file_id}/view`}" target="_blank" class="btn btn-sm btn-secondary" style="text-decoration:none;" onclick="event.stopPropagation();">
+                        🔗 GDrive
+                    </a>
                     <button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); downloadFileNoJS('${f.file_id}')">
                         📥 PDF
                     </button>
@@ -132,9 +135,15 @@ function selectFile(fileId) {
     activeSubject.textContent = fileObj.subject;
     activeId.textContent = `ID: ${fileId}`;
 
+    const btnOpenGDrive = document.getElementById('btn-open-gdrive');
+    if (btnOpenGDrive) {
+        btnOpenGDrive.href = fileObj.google_drive_url || `https://drive.google.com/file/d/${fileId}/view`;
+    }
+
     renderFilesList(allFiles);
     connectWebSocket(fileId);
 }
+
 
 // Auto-Scroll Controls
 let isAutoScrolling = false;
@@ -426,7 +435,17 @@ function contextDownloadNoJS() {
     downloadActiveFileNoJS();
 }
 
+function contextOpenGDrive() {
+    contextMenu.style.display = 'none';
+    if (currentFileObj && currentFileObj.google_drive_url) {
+        window.open(currentFileObj.google_drive_url, '_blank');
+    } else if (currentFileId) {
+        window.open(`https://drive.google.com/file/d/${currentFileId}/view`, '_blank');
+    }
+}
+
 function contextToggleAutoScroll() {
+
     contextMenu.style.display = 'none';
     toggleAutoScroll();
 }
