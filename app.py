@@ -166,22 +166,52 @@ def get_file_page_status(file_id: str):
     except Exception:
         fetched_pages = []
 
-    # Check if extracted text file exists and parse page markers from it if present
+    # Check if extracted text file exists and parse all page markers from it
     text_file_path = Path("extracted_text") / f"{file_id}_extracted.txt"
     if text_file_path.exists():
         try:
             import re
             content = text_file_path.read_text(encoding="utf-8")
             found_pages = set(fetched_pages)
-            for p_match in re.finditer(r'📄 PAGE (\d+) OF (\d+)', content):
-                found_pages.add(int(p_match.group(1)))
-                total_pages = max(total_pages, int(p_match.group(2)))
+
+            # Match "📄 PAGE X OF Y", "Page X of Y", "Page X / Y"
+            for m in re.finditer(r'(?:📄\s*PAGE|Page)\s+(\d+)\s*(?:of|\/)\s*(\d+)', content, re.IGNORECASE):
+                p_num = int(m.group(1))
+                t_num = int(m.group(2))
+                if 0 < p_num <= 2000 and 0 < t_num <= 2000:
+                    found_pages.add(p_num)
+                    if t_num > total_pages:
+                        total_pages = t_num
+
+            # Match standalone "Page X of Y" in body text
+            for m in re.finditer(r'Page\s+(\d+)\s+of\s+(\d+)', content, re.IGNORECASE):
+                p_num = int(m.group(1))
+                t_num = int(m.group(2))
+                if 0 < p_num <= 2000 and 0 < t_num <= 2000:
+                    found_pages.add(p_num)
+                    if t_num > total_pages:
+                        total_pages = t_num
+
+            # Match "=== SECTION X ==="
+            for m in re.finditer(r'SECTION\s+(\d+)', content, re.IGNORECASE):
+                p_num = int(m.group(1))
+                if 0 < p_num <= 2000:
+                    found_pages.add(p_num)
+
+            if found_pages and total_pages <= 0:
+                total_pages = max(found_pages)
+
             fetched_pages = sorted(list(found_pages))
-            database.update_file_page_status(file_id, total_pages, fetched_pages)
-        except Exception:
-            pass
+            if total_pages > 0:
+                database.update_file_page_status(file_id, total_pages, fetched_pages)
+        except Exception as scan_err:
+            logger.warning(f"Error parsing page status from text file: {scan_err}")
+
+    if total_pages <= 0:
+        total_pages = 67  # Fallback default for display if undiscovered
 
     missing_pages = sorted(list(set(range(1, total_pages + 1)) - set(fetched_pages)))
+
 
     return {
         "file_id": file_id,
@@ -237,7 +267,11 @@ async def stream_browser(websocket: WebSocket, file_id: str):
     except Exception as e:
         logger.error(f"WebSocket session error: {e}")
     finally:
-        await session.stop()
+        try:
+            await session.stop()
+        except Exception:
+            pass
+
 
 if __name__ == "__main__":
     import uvicorn

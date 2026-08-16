@@ -395,7 +395,7 @@ class PlaywrightStreamSession:
 
     async def finish_and_extract_text(self):
         await self.stop_auto_scroll()
-        await self.websocket.send_json({
+        await self._send_ws_json({
             "type": "status",
             "message": "Finalizing clean multi-page document structure...",
             "extracting": True
@@ -411,14 +411,12 @@ class PlaywrightStreamSession:
             except Exception:
                 pass
 
-
         # Process text extraction via Celery / background worker
-
         try:
             from celery_worker import perform_ocr_extraction
             text_file_path = await asyncio.to_thread(perform_ocr_extraction, self.file_id, dom_text)
             
-            await self.websocket.send_json({
+            await self._send_ws_json({
                 "type": "extraction_complete",
                 "file_id": self.file_id,
                 "text_path": text_file_path,
@@ -426,7 +424,7 @@ class PlaywrightStreamSession:
             })
         except Exception as e:
             logger.error(f"Text extraction failed: {e}")
-            await self.websocket.send_json({
+            await self._send_ws_json({
                 "type": "error",
                 "message": f"Text extraction error: {e}"
             })
@@ -445,7 +443,7 @@ class PlaywrightStreamSession:
             self.current_url = f"https://drive.google.com/uc?export=download&id={file_id}"
 
         try:
-            await self.websocket.send_json({
+            await self._send_ws_json({
                 "type": "status",
                 "message": f"Navigating to {self.current_url} (JS: {'Enabled' if self.js_enabled else 'Disabled'})...",
                 "js_enabled": self.js_enabled
@@ -465,7 +463,7 @@ class PlaywrightStreamSession:
                         }} catch(e) {{}}
                     }});
                 }}""")
-                await self.websocket.send_json({
+                await self._send_ws_json({
                     "type": "status",
                     "message": f"Resumed document at last saved position (Page ~{self.last_page}, {self.last_scroll_pos}px)",
                     "last_page": self.last_page,
@@ -550,7 +548,7 @@ class PlaywrightStreamSession:
 
             elif act_type == "mark_done":
                 rec = database.mark_as_downloaded(self.file_id)
-                await self.websocket.send_json({
+                await self._send_ws_json({
                     "type": "status",
                     "message": f"File {self.file_id} marked as Downloaded/Done!",
                     "downloaded": True
@@ -573,7 +571,7 @@ class PlaywrightStreamSession:
                 import base64
                 b64_frame = base64.b64encode(screenshot_bytes).decode("utf-8")
 
-                await self.websocket.send_json({
+                await self._send_ws_json({
                     "type": "frame",
                     "frame": f"data:image/jpeg;base64,{b64_frame}",
                     "url": page_url,
@@ -582,6 +580,7 @@ class PlaywrightStreamSession:
                     "auto_scrolling": self.is_auto_scrolling,
                     "file_id": self.file_id
                 })
+
 
                 await asyncio.sleep(0.1)
             except asyncio.CancelledError:

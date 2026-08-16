@@ -544,7 +544,12 @@ function reloadStream() {
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ action: 'reload' }));
     }
+    if (currentFileId) {
+        loadPageStatus(currentFileId);
+        loadSavedTextIfAvailable(currentFileId);
+    }
 }
+
 
 // Canvas Mouse & Keyboard Events Setup
 function setupCanvasEvents() {
