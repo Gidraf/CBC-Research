@@ -18,49 +18,52 @@ TEMP_SCREENSHOTS_DIR = Path("temp_screenshots")
 EXTRACTED_TEXT_DIR = Path("extracted_text")
 EXTRACTED_TEXT_DIR.mkdir(parents=True, exist_ok=True)
 
-def perform_ocr_extraction(file_id: str) -> str:
+def perform_ocr_extraction(file_id: str, dom_text: str = "") -> str:
     session_dir = TEMP_SCREENSHOTS_DIR / file_id
-    if not session_dir.exists():
-        logger.warning(f"No temporary screenshots found for session {file_id}")
-        return ""
+    full_text = ""
 
-    screenshot_files = sorted(session_dir.glob("step_*.png"))
-    if not screenshot_files:
-        screenshot_files = sorted(session_dir.glob("*.png")) + sorted(session_dir.glob("*.jpg"))
-
-    logger.info(f"Processing {len(screenshot_files)} screenshots for file {file_id}...")
-
-    extracted_sections = []
+    # Check if DOM innerText has rich text content (>150 chars)
+    clean_dom = dom_text.strip() if dom_text else ""
     
-    # Attempt pytesseract OCR
-    has_tesseract = True
-    try:
-        import pytesseract
-    except ImportError:
-        has_tesseract = False
+    if len(clean_dom) > 150:
+        logger.info(f"Using high-fidelity Playwright DOM innerText ({len(clean_dom)} chars)")
+        full_text = clean_dom
+    else:
+        # Fallback to screenshot OCR
+        screenshot_files = sorted(session_dir.glob("step_*.png")) if session_dir.exists() else []
+        if not screenshot_files and session_dir.exists():
+            screenshot_files = sorted(session_dir.glob("*.png")) + sorted(session_dir.glob("*.jpg"))
 
-    for idx, img_path in enumerate(screenshot_files, start=1):
-        section_text = f"=== SECTION {idx} ==="
+        logger.info(f"Processing {len(screenshot_files)} screenshots for file {file_id}...")
+
+        extracted_sections = []
+        has_tesseract = True
         try:
-            img = Image.open(img_path)
-            if has_tesseract:
-                try:
-                    text = pytesseract.image_to_string(img)
-                    text = text.strip()
-                    if text:
-                        extracted_sections.append(f"{section_text}\n{text}")
-                    else:
-                        extracted_sections.append(f"{section_text}\n[No text detected on screen {idx}]")
-                except Exception as ocr_err:
-                    logger.warning(f"Tesseract OCR warning on step {idx}: {ocr_err}")
-                    extracted_sections.append(f"{section_text}\n[OCR extraction unavailable on step {idx}]")
-            else:
-                extracted_sections.append(f"{section_text}\n[PyTesseract not installed]")
-        except Exception as e:
-            logger.error(f"Error reading screenshot {img_path}: {e}")
+            import pytesseract
+        except ImportError:
+            has_tesseract = False
 
-    # Combine text with newlines
-    full_text = "\n\n".join(extracted_sections)
+        for idx, img_path in enumerate(screenshot_files, start=1):
+            section_text = f"=== SECTION {idx} ==="
+            try:
+                img = Image.open(img_path)
+                if has_tesseract:
+                    try:
+                        text = pytesseract.image_to_string(img)
+                        text = text.strip()
+                        if text:
+                            extracted_sections.append(f"{section_text}\n{text}")
+                        else:
+                            extracted_sections.append(f"{section_text}\n[No text detected on screen {idx}]")
+                    except Exception as ocr_err:
+                        logger.warning(f"Tesseract OCR warning on step {idx}: {ocr_err}")
+                        extracted_sections.append(f"{section_text}\n[OCR extraction unavailable on step {idx}]")
+                else:
+                    extracted_sections.append(f"{section_text}\n[PyTesseract not installed]")
+            except Exception as e:
+                logger.error(f"Error reading screenshot {img_path}: {e}")
+
+        full_text = "\n\n".join(extracted_sections) if extracted_sections else (clean_dom or "No text content extracted.")
 
     # Save to extracted_text/{file_id}_extracted.txt
     text_filename = f"{file_id}_extracted.txt"
@@ -68,21 +71,23 @@ def perform_ocr_extraction(file_id: str) -> str:
     text_file_path.write_text(full_text, encoding="utf-8")
     logger.info(f"Extracted text saved to {text_file_path}")
 
-    # DISCARD & CLEANUP SCREENSHOTS TO SAVE DISK SPACE
-    try:
-        shutil.rmtree(session_dir)
-        logger.info(f"Successfully deleted temporary screenshots folder: {session_dir}")
-    except Exception as cleanup_err:
-        logger.error(f"Failed deleting temporary screenshots {session_dir}: {cleanup_err}")
+    # DISCARD & CLEANUP TEMPORARY SCREENSHOTS TO SAVE DISK SPACE
+    if session_dir.exists():
+        try:
+            shutil.rmtree(session_dir)
+            logger.info(f"Successfully deleted temporary screenshots folder: {session_dir}")
+        except Exception as cleanup_err:
+            logger.error(f"Failed deleting temporary screenshots {session_dir}: {cleanup_err}")
 
     # Update SQLite database
     database.update_extracted_text(file_id, str(text_file_path))
     return str(text_file_path)
 
 @celery_app.task(name="extract_text_from_screenshots")
-def process_document_screenshots_task(file_id: str):
-    logger.info(f"Celery worker processing OCR for {file_id}")
-    return perform_ocr_extraction(file_id)
+def process_document_screenshots_task(file_id: str, dom_text: str = ""):
+    logger.info(f"Celery worker processing extraction for {file_id}")
+    return perform_ocr_extraction(file_id, dom_text)
+
 
 if __name__ == "__main__":
     import sys

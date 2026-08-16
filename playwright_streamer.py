@@ -122,6 +122,32 @@ class PlaywrightStreamSession:
                 except Exception as shot_err:
                     logger.warning(f"Screenshot step error: {shot_err}")
 
+                # Extract live DOM innerText and stream real-time over WebSocket
+                try:
+                    live_text = await self.page.evaluate("""() => {
+                        let text = document.body ? document.body.innerText : '';
+                        let iframes = document.querySelectorAll('iframe');
+                        iframes.forEach(iframe => {
+                            try {
+                                let iDoc = iframe.contentDocument || iframe.contentWindow.document;
+                                if (iDoc && iDoc.body && iDoc.body.innerText) {
+                                    text += '\\n\\n' + iDoc.body.innerText;
+                                }
+                            } catch(e) {}
+                        });
+                        return text;
+                    }""")
+
+                    if live_text and len(live_text.strip()) > 10:
+                        await self.websocket.send_json({
+                            "type": "live_text",
+                            "file_id": self.file_id,
+                            "text": live_text,
+                            "step": self.screenshot_count
+                        })
+                except Exception as text_err:
+                    logger.warning(f"Live text extraction step warning: {text_err}")
+
                 # Perform human-speed scroll step (~350px down)
                 await self.page.evaluate("window.scrollBy(0, 350);")
                 
@@ -134,18 +160,39 @@ class PlaywrightStreamSession:
                 logger.error(f"Auto-scroll loop error: {e}")
                 await asyncio.sleep(1.0)
 
+
     async def finish_and_extract_text(self):
         await self.stop_auto_scroll()
         await self.websocket.send_json({
             "type": "status",
-            "message": f"Processing OCR text extraction & cleaning up screenshots...",
+            "message": "Extracting document text from DOM & screenshots...",
             "extracting": True
         })
 
-        # Run OCR worker process
+        dom_text = ""
+        if self.page:
+            try:
+                # Extract DOM innerText from document.body and any inner iframe documents
+                dom_text = await self.page.evaluate("""() => {
+                    let text = document.body ? document.body.innerText : '';
+                    let iframes = document.querySelectorAll('iframe');
+                    iframes.forEach(iframe => {
+                        try {
+                            let iDoc = iframe.contentDocument || iframe.contentWindow.document;
+                            if (iDoc && iDoc.body && iDoc.body.innerText) {
+                                text += '\\n\\n' + iDoc.body.innerText;
+                            }
+                        } catch(e) {}
+                    });
+                    return text;
+                }""")
+            except Exception as dom_err:
+                logger.warning(f"DOM text extraction warning: {dom_err}")
+
+        # Process text extraction via Celery / background worker
         try:
             from celery_worker import perform_ocr_extraction
-            text_file_path = await asyncio.to_thread(perform_ocr_extraction, self.file_id)
+            text_file_path = await asyncio.to_thread(perform_ocr_extraction, self.file_id, dom_text)
             
             await self.websocket.send_json({
                 "type": "extraction_complete",
@@ -154,11 +201,12 @@ class PlaywrightStreamSession:
                 "downloaded": True
             })
         except Exception as e:
-            logger.error(f"OCR extraction failed: {e}")
+            logger.error(f"Text extraction failed: {e}")
             await self.websocket.send_json({
                 "type": "error",
                 "message": f"Text extraction error: {e}"
             })
+
 
     async def navigate_to_file(self, file_id: str, mode: str = "auto"):
         self.file_id = file_id

@@ -127,20 +127,32 @@
                     </div>
                 </div>
 
-                <!-- Live Stream Canvas View -->
-                <div class="stream-wrapper" id="stream-wrapper">
-                    <div class="stream-overlay" id="stream-overlay">
-                        <div class="spinner"></div>
-                        <p id="overlay-status-text">Click a file from the left sidebar to start Playwright viewer</p>
+                <!-- Live Stream & Real-Time Text Split View -->
+                <div class="stream-split-container">
+                    <div class="stream-wrapper" id="stream-wrapper">
+                        <div class="stream-overlay" id="stream-overlay">
+                            <div class="spinner"></div>
+                            <p id="overlay-status-text">Click a file from the left sidebar to start Playwright viewer</p>
+                        </div>
+                        
+                        <img id="stream-frame" class="stream-frame" alt="Playwright Live View" tabindex="0">
+                        
+                        <div class="stream-footer">
+                            <span id="stream-url-display">URL: disconnected</span>
+                            <span class="keyboard-hint">💡 Tip: Auto-scroll extracts text in real-time on the right.</span>
+                        </div>
                     </div>
-                    
-                    <img id="stream-frame" class="stream-frame" alt="Playwright Live View" tabindex="0">
-                    
-                    <div class="stream-footer">
-                        <span id="stream-url-display">URL: disconnected</span>
-                        <span class="keyboard-hint">💡 Tip: Click "Open in GDrive" to open the raw link in a new browser tab.</span>
+
+                    <!-- Live Real-Time Text Stream Panel -->
+                    <div class="live-text-panel" id="live-text-panel">
+                        <div class="panel-header">
+                            <span class="panel-title">⚡ Live Real-Time Extracted Text</span>
+                            <button class="btn btn-sm btn-secondary" onclick="copyLiveText()">📋 Copy</button>
+                        </div>
+                        <textarea id="live-text-box" readonly placeholder="Text will stream here in real-time as document scrolls..."></textarea>
                     </div>
                 </div>
+
             </main>
         </div>
     </div>

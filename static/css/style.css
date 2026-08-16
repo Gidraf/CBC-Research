@@ -471,7 +471,55 @@ body {
     resize: none;
 }
 
+.stream-split-container {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+}
+
+.live-text-panel {
+    width: 450px;
+    background-color: var(--bg-surface);
+    border-left: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+}
+
+.panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-color);
+    background-color: var(--bg-main);
+}
+
+.panel-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent-purple);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.live-text-panel textarea {
+    flex: 1;
+    background-color: #050811;
+    color: #e2e8f0;
+    border: none;
+    padding: 14px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    resize: none;
+}
+
+.live-text-panel textarea:focus {
+    outline: none;
+}
+
 .modal-footer {
+
     display: flex;
     justify-content: flex-end;
     gap: 10px;

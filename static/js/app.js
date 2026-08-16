@@ -140,9 +140,15 @@ function selectFile(fileId) {
         btnOpenGDrive.href = fileObj.google_drive_url || `https://drive.google.com/file/d/${fileId}/view`;
     }
 
+    const liveBox = document.getElementById('live-text-box');
+    if (liveBox) {
+        liveBox.value = `Initializing text stream for ${fileObj.subject} (${fileObj.grade})...\nClick "▶️ Auto-Scroll" to start real-time text extraction as document scrolls.`;
+    }
+
     renderFilesList(allFiles);
     connectWebSocket(fileId);
 }
+
 
 
 // Auto-Scroll Controls
@@ -299,6 +305,12 @@ function connectWebSocket(fileId) {
                 fetchStats();
                 fetchFiles();
             }
+        } else if (data.type === 'live_text') {
+            const liveBox = document.getElementById('live-text-box');
+            if (liveBox && data.text) {
+                liveBox.value = data.text;
+                liveBox.scrollTop = liveBox.scrollHeight;
+            }
         } else if (data.type === 'download_complete') {
             alert(`✅ File Downloaded Successfully to: ${data.local_path}`);
             fetchStats();
@@ -310,6 +322,17 @@ function connectWebSocket(fileId) {
             viewExtractedText(data.file_id);
         }
     };
+
+function copyLiveText() {
+    const liveBox = document.getElementById('live-text-box');
+    if (liveBox && liveBox.value) {
+        navigator.clipboard.writeText(liveBox.value);
+        alert('Copied real-time live text to clipboard!');
+    } else {
+        alert('No live text captured yet.');
+    }
+}
+
 
     ws.onclose = () => {
         streamOverlay.classList.remove('hidden');
