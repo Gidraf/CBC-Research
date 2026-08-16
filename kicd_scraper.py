@@ -116,19 +116,15 @@ def fetch_url(url, retries=3):
 
 def fetch_gdrive_file(file_id, pdf_path, txt_path, retries=3):
     """
-    Download a file from Google Drive with retries.
-    1. Attempts to download valid PDF (%PDF header, > 5KB).
-    2. Tries multiple Google Drive export URL formats and handles confirmation tokens.
-    3. If PDF download fails/denied, scrapes available text/HTML from Google Drive viewer and saves as .txt.
-
-    Returns (success: bool, file_type: str, bytes_saved: int)
+    Download a file from Google Drive bypassing JavaScript preview wrappers.
+    Uses non-JS CLI headers (Wget/curl) so Google Drive serves raw binary PDF streams directly.
     """
+    # Non-JS CLI headers cause Google Drive to skip client-side JS app rendering
     headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        )
+        "User-Agent": "Wget/1.21.3 (linux-gnu)",
+        "Accept": "*/*",
+        "Accept-Encoding": "identity",
+        "Connection": "Keep-Alive"
     }
 
     cookie_jar = http.cookiejar.CookieJar()
@@ -136,8 +132,9 @@ def fetch_gdrive_file(file_id, pdf_path, txt_path, retries=3):
     opener.addheaders = list(headers.items())
 
     urls_to_try = [
-        f"https://drive.google.com/uc?export=download&id={file_id}",
         f"https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm=t",
+        f"https://drive.google.com/uc?export=download&id={file_id}&confirm=t",
+        f"https://drive.google.com/uc?export=download&id={file_id}",
         f"https://drive.google.com/uc?id={file_id}&export=download",
     ]
 
@@ -146,7 +143,8 @@ def fetch_gdrive_file(file_id, pdf_path, txt_path, retries=3):
     for attempt in range(retries):
         for base_url in urls_to_try:
             try:
-                resp = opener.open(base_url, timeout=45)
+                req = urllib.request.Request(base_url, headers=headers)
+                resp = opener.open(req, timeout=45)
                 data = resp.read()
 
                 # Handle Google Drive virus-scan confirmation token
@@ -155,7 +153,8 @@ def fetch_gdrive_file(file_id, pdf_path, txt_path, retries=3):
                     if match:
                         confirm = match.group(1).decode()
                         confirm_url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm={confirm}"
-                        resp2 = opener.open(confirm_url, timeout=60)
+                        req_confirm = urllib.request.Request(confirm_url, headers=headers)
+                        resp2 = opener.open(req_confirm, timeout=60)
                         data = resp2.read()
 
                 # Validate genuine PDF magic bytes (%PDF) and size > 5KB
@@ -175,7 +174,6 @@ def fetch_gdrive_file(file_id, pdf_path, txt_path, retries=3):
     if pdf_data:
         pdf_path.parent.mkdir(parents=True, exist_ok=True)
         pdf_path.write_bytes(pdf_data)
-        # Remove stray invalid small PDF if it existed from prior runs
         if txt_path.exists():
             txt_path.unlink(missing_ok=True)
         return True, "pdf", len(pdf_data)
