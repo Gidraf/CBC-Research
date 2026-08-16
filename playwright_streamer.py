@@ -29,12 +29,15 @@ class PlaywrightStreamSession:
         self.viewport_height = 800
         self.is_running = False
         self.stream_task = None
+        self.is_auto_scrolling = False
+        self.auto_scroll_task = None
+        self.screenshot_count = 0
+        self.temp_dir = Path("temp_screenshots") / file_id
 
     async def start(self):
         self.is_running = True
         try:
             self.playwright = await async_playwright().start()
-            # Chromium launch options
             self.browser = await self.playwright.chromium.launch(
                 headless=True,
                 args=[
@@ -46,8 +49,6 @@ class PlaywrightStreamSession:
                 ]
             )
             await self._create_context()
-            
-            # Start frame broadcasting loop
             self.stream_task = asyncio.create_task(self._frame_broadcaster())
             await self.navigate_to_file(self.file_id)
 
@@ -66,8 +67,6 @@ class PlaywrightStreamSession:
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
         self.page = await self.context.new_page()
-
-        # Download event listener
         self.page.on("download", self._handle_download)
 
     async def _handle_download(self, download):
@@ -77,11 +76,9 @@ class PlaywrightStreamSession:
             await download.save_as(save_path)
             file_size = save_path.stat().st_size if save_path.exists() else 0
             
-            # Update database
             database.mark_as_downloaded(self.file_id, str(save_path), file_size)
             logger.info(f"File downloaded via Playwright -> {save_path}")
 
-            # Notify WebSocket client
             await self.websocket.send_json({
                 "type": "download_complete",
                 "file_id": self.file_id,
@@ -91,20 +88,86 @@ class PlaywrightStreamSession:
         except Exception as e:
             logger.error(f"Failed saving download: {e}")
 
+    async def start_auto_scroll(self):
+        if self.is_auto_scrolling:
+            return
+        self.is_auto_scrolling = True
+        self.auto_scroll_task = asyncio.create_task(self._auto_scroll_loop())
+        await self.websocket.send_json({
+            "type": "status",
+            "message": "Auto-scrolling started (~350px / 1.5s). Screenshots recording...",
+            "auto_scrolling": True
+        })
+
+    async def stop_auto_scroll(self):
+        self.is_auto_scrolling = False
+        if self.auto_scroll_task:
+            self.auto_scroll_task.cancel()
+            self.auto_scroll_task = None
+        await self.websocket.send_json({
+            "type": "status",
+            "message": "Auto-scrolling paused.",
+            "auto_scrolling": False
+        })
+
+    async def _auto_scroll_loop(self):
+        self.temp_dir.mkdir(parents=True, exist_ok=True)
+        while self.is_auto_scrolling and self.page and self.is_running:
+            try:
+                # Capture frame for OCR before scroll step
+                self.screenshot_count += 1
+                img_path = self.temp_dir / f"step_{self.screenshot_count:04d}.png"
+                try:
+                    await self.page.screenshot(path=str(img_path))
+                except Exception as shot_err:
+                    logger.warning(f"Screenshot step error: {shot_err}")
+
+                # Perform human-speed scroll step (~350px down)
+                await self.page.evaluate("window.scrollBy(0, 350);")
+                
+                # Sleep 1.5s for human-readable scrolling
+                await asyncio.sleep(1.5)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Auto-scroll loop error: {e}")
+                await asyncio.sleep(1.0)
+
+    async def finish_and_extract_text(self):
+        await self.stop_auto_scroll()
+        await self.websocket.send_json({
+            "type": "status",
+            "message": f"Processing OCR text extraction & cleaning up screenshots...",
+            "extracting": True
+        })
+
+        # Run OCR worker process
+        try:
+            from celery_worker import perform_ocr_extraction
+            text_file_path = await asyncio.to_thread(perform_ocr_extraction, self.file_id)
+            
+            await self.websocket.send_json({
+                "type": "extraction_complete",
+                "file_id": self.file_id,
+                "text_path": text_file_path,
+                "downloaded": True
+            })
+        except Exception as e:
+            logger.error(f"OCR extraction failed: {e}")
+            await self.websocket.send_json({
+                "type": "error",
+                "message": f"Text extraction error: {e}"
+            })
+
     async def navigate_to_file(self, file_id: str, mode: str = "auto"):
         self.file_id = file_id
         file_rec = database.get_file_by_id(file_id)
         
         if self.js_enabled:
-            # When JS is enabled, preview view works
             self.current_url = f"https://drive.google.com/file/d/{file_id}/preview"
         else:
-            # When JS is disabled, export/download URL produces direct No-JS link/form
             self.current_url = f"https://drive.google.com/uc?export=download&id={file_id}"
-
-        if file_rec and file_rec.get("google_drive_url"):
-            # Use stored URL if specific
-            pass
 
         try:
             await self.websocket.send_json({
@@ -115,7 +178,6 @@ class PlaywrightStreamSession:
 
             await self.page.goto(self.current_url, wait_until="domcontentloaded", timeout=30000)
 
-            # Auto-click No-JS download links if present
             if not self.js_enabled:
                 if await self.page.locator("#uc-download-link").is_visible():
                     await self.page.locator("#uc-download-link").click()
@@ -176,6 +238,15 @@ class PlaywrightStreamSession:
                 desired_js = action.get("js_enabled")
                 await self.toggle_javascript(desired_js)
 
+            elif act_type == "start_auto_scroll":
+                await self.start_auto_scroll()
+
+            elif act_type == "stop_auto_scroll":
+                await self.stop_auto_scroll()
+
+            elif act_type == "finish_and_extract":
+                await self.finish_and_extract_text()
+
             elif act_type == "navigate":
                 url = action.get("url")
                 if url:
@@ -200,12 +271,10 @@ class PlaywrightStreamSession:
         """Captures screenshots continuously and sends binary/JPEG frames over WebSocket."""
         while self.is_running and self.page:
             try:
-                # Capture screenshot as JPEG bytes
                 screenshot_bytes = await self.page.screenshot(type="jpeg", quality=60)
                 page_title = await self.page.title()
                 page_url = self.page.url
 
-                # Send frame header JSON + binary frame data or base64 frame
                 import base64
                 b64_frame = base64.b64encode(screenshot_bytes).decode("utf-8")
 
@@ -215,17 +284,18 @@ class PlaywrightStreamSession:
                     "url": page_url,
                     "title": page_title,
                     "js_enabled": self.js_enabled,
+                    "auto_scrolling": self.is_auto_scrolling,
                     "file_id": self.file_id
                 })
 
-                await asyncio.sleep(0.1) # ~10 FPS stream rate
+                await asyncio.sleep(0.1)
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                # Page closing or nav transition
                 await asyncio.sleep(0.5)
 
     async def stop(self):
+        await self.stop_auto_scroll()
         self.is_running = False
         if self.stream_task:
             self.stream_task.cancel()
@@ -235,3 +305,4 @@ class PlaywrightStreamSession:
             await self.browser.close()
         if self.playwright:
             await self.playwright.stop()
+

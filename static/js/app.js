@@ -106,8 +106,12 @@ function renderFilesList(files) {
                         👁️ Stream
                     </button>
                     <button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); downloadFileNoJS('${f.file_id}')">
-                        📥 Download PDF
+                        📥 PDF
                     </button>
+                    ${f.text_extracted === 1 ? `
+                    <button class="btn btn-sm btn-purple" onclick="event.stopPropagation(); viewExtractedText('${f.file_id}')">
+                        📄 Text
+                    </button>` : ''}
                     <button class="btn btn-sm ${isDownloaded ? 'btn-secondary' : 'btn-success'}" onclick="event.stopPropagation(); toggleMarkDone('${f.file_id}')">
                         ${isDownloaded ? 'Done' : '✅ Mark'}
                     </button>
@@ -130,6 +134,85 @@ function selectFile(fileId) {
 
     renderFilesList(allFiles);
     connectWebSocket(fileId);
+}
+
+// Auto-Scroll Controls
+let isAutoScrolling = false;
+function toggleAutoScroll() {
+    isAutoScrolling = !isAutoScrolling;
+    const btnText = document.getElementById('auto-scroll-text');
+    const btn = document.getElementById('btn-auto-scroll');
+
+    if (isAutoScrolling) {
+        btnText.textContent = 'Pause Auto-Scroll';
+        btn.className = 'btn btn-secondary';
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ action: 'start_auto_scroll' }));
+        }
+    } else {
+        btnText.textContent = 'Auto-Scroll';
+        btn.className = 'btn btn-warning';
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ action: 'stop_auto_scroll' }));
+        }
+    }
+}
+
+// Finish & Extract Text Controls
+async function finishAndExtractText() {
+    if (!currentFileId) {
+        alert('Please select a file first.');
+        return;
+    }
+    
+    streamOverlay.classList.remove('hidden');
+    overlayStatusText.textContent = 'Extracting OCR text from screenshots & cleaning up temporary files...';
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ action: 'finish_and_extract' }));
+    } else {
+        try {
+            const resp = await fetch(`/api/files/${currentFileId}/finish-extract`, { method: 'POST' });
+            if (resp.ok) {
+                const data = await resp.json();
+                alert(`✅ Text Extraction Complete!\nText saved to: ${data.text_path}`);
+                await fetchStats();
+                await fetchFiles();
+                await viewExtractedText(currentFileId);
+            }
+        } catch (e) {
+            alert('Error running extraction: ' + e.message);
+        } finally {
+            streamOverlay.classList.add('hidden');
+        }
+    }
+}
+
+// View Extracted Text Modal
+async function viewExtractedText(fileId) {
+    try {
+        const resp = await fetch(`/api/files/${fileId}/text`);
+        if (resp.ok) {
+            const data = await resp.json();
+            document.getElementById('modal-text-content').value = data.content;
+            document.getElementById('text-modal').classList.remove('hidden');
+        } else {
+            alert('No extracted text file found for this document.');
+        }
+    } catch (e) {
+        alert('Failed fetching text: ' + e.message);
+    }
+}
+
+function closeTextModal() {
+    document.getElementById('text-modal').classList.add('hidden');
+}
+
+function copyExtractedText() {
+    const txtArea = document.getElementById('modal-text-content');
+    txtArea.select();
+    navigator.clipboard.writeText(txtArea.value);
+    alert('Copied extracted text to clipboard!');
 }
 
 // Direct No-JS Downloader Function
@@ -177,7 +260,6 @@ async function markActiveFileDone() {
     await toggleMarkDone(currentFileId);
 }
 
-
 // WebSocket Connection & Playwright Live Stream
 function connectWebSocket(fileId) {
     if (ws) {
@@ -212,8 +294,24 @@ function connectWebSocket(fileId) {
             alert(`✅ File Downloaded Successfully to: ${data.local_path}`);
             fetchStats();
             fetchFiles();
+        } else if (data.type === 'extraction_complete') {
+            alert(`🎉 Text Extraction & Screenshot Cleanup Complete!\nText saved to: ${data.text_path}`);
+            fetchStats();
+            fetchFiles();
+            viewExtractedText(data.file_id);
         }
     };
+
+    ws.onclose = () => {
+        streamOverlay.classList.remove('hidden');
+        overlayStatusText.textContent = 'Stream disconnected. Click a file to reconnect.';
+    };
+
+    ws.onerror = (err) => {
+        console.error('WebSocket Error:', err);
+    };
+}
+
 
     ws.onclose = () => {
         streamOverlay.classList.remove('hidden');
@@ -323,6 +421,11 @@ function setupGlobalContextMenuDismiss() {
 }
 
 // Context Menu Action Handlers
+function contextFinishExtract() {
+    contextMenu.style.display = 'none';
+    finishAndExtractText();
+}
+
 function contextMarkDone() {
     contextMenu.style.display = 'none';
     markActiveFileDone();
@@ -333,11 +436,16 @@ function contextDownloadNoJS() {
     downloadActiveFileNoJS();
 }
 
-function contextToggleJS() {
+function contextToggleAutoScroll() {
+    contextMenu.style.display = 'none';
+    toggleAutoScroll();
+}
 
+function contextToggleJS() {
     contextMenu.style.display = 'none';
     toggleJS();
 }
+
 
 function contextReload() {
     contextMenu.style.display = 'none';

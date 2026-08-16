@@ -110,6 +110,23 @@ def download_nojs_direct(file_id: str):
         raise HTTPException(status_code=500, detail="No-JS direct download failed")
     return database.get_file_by_id(file_id)
 
+@app.post("/api/files/{file_id}/finish-extract")
+def finish_and_extract_file(file_id: str):
+    from celery_worker import perform_ocr_extraction
+    text_path = perform_ocr_extraction(file_id)
+    return {"status": "success", "file_id": file_id, "text_path": text_path}
+
+@app.get("/api/files/{file_id}/text")
+def get_extracted_text(file_id: str):
+    file_rec = database.get_file_by_id(file_id)
+    if not file_rec or not file_rec.get("text_path"):
+        raise HTTPException(status_code=404, detail="Extracted text not found for this file.")
+    text_file = Path(file_rec["text_path"])
+    if not text_file.exists():
+        raise HTTPException(status_code=404, detail="Extracted text file does not exist.")
+    return {"file_id": file_id, "content": text_file.read_text(encoding="utf-8")}
+
+
 @app.get("/api/stats")
 def get_system_stats():
     return database.get_stats()

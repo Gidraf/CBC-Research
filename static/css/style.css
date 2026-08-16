@@ -381,8 +381,107 @@ body {
     background-color: rgba(14, 165, 233, 0.3);
 }
 
+.btn-warning {
+    background-color: var(--warning-orange);
+    color: #ffffff;
+    font-weight: 700;
+}
+
+.btn-warning:hover {
+    background-color: #ea580c;
+}
+
+.btn-purple {
+    background: linear-gradient(135deg, #7c3aed, #a855f7);
+    color: #ffffff;
+    font-weight: 700;
+    box-shadow: 0 4px 14px rgba(168, 85, 247, 0.4);
+}
+
+.btn-purple:hover {
+    background: linear-gradient(135deg, #6d28d9, #7c3aed);
+}
+
+.menu-item.highlight-purple {
+    background-color: rgba(168, 85, 247, 0.15);
+    color: #c084fc;
+    font-weight: 600;
+}
+
+.menu-item.highlight-purple:hover {
+    background-color: rgba(168, 85, 247, 0.3);
+}
+
+/* Modal Overlay & Card */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(2, 6, 23, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    backdrop-filter: blur(4px);
+}
+
+.modal-overlay.hidden {
+    display: none;
+}
+
+.modal-card {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    width: 700px;
+    max-width: 90vw;
+    height: 600px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.modal-body {
+    flex: 1;
+    padding: 16px;
+    display: flex;
+}
+
+.modal-body textarea {
+    flex: 1;
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 12px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.6;
+    resize: none;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 12px 20px;
+    border-top: 1px solid var(--border-color);
+}
+
 /* Buttons */
 .btn {
+
 
     display: inline-flex;
     align-items: center;

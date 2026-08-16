@@ -25,14 +25,27 @@ def init_db():
                 local_path TEXT,
                 file_size INTEGER DEFAULT 0,
                 notes TEXT,
+                text_path TEXT,
+                text_extracted INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        # Safe migration for existing DB
+        try:
+            cursor.execute("ALTER TABLE files ADD COLUMN text_path TEXT;")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE files ADD COLUMN text_extracted INTEGER DEFAULT 0;")
+        except Exception:
+            pass
+
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_file_id ON files(file_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_grade ON files(grade);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_downloaded ON files(downloaded);")
         conn.commit()
+
 
 def upsert_file(grade: str, subject: str, file_id: str, google_drive_url: str, download_url: str, local_path: Optional[str] = None, downloaded: bool = False) -> Dict[str, Any]:
     now = datetime.now().isoformat()
@@ -122,6 +135,18 @@ def toggle_downloaded(file_id: str) -> Optional[Dict[str, Any]]:
         conn.commit()
     return get_file_by_id(file_id)
 
+def update_extracted_text(file_id: str, text_path: str) -> Optional[Dict[str, Any]]:
+    now = datetime.now().isoformat()
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE files 
+            SET downloaded = 1, text_extracted = 1, text_path = ?, updated_at = ? 
+            WHERE file_id = ?
+        """, (text_path, now, file_id))
+        conn.commit()
+    return get_file_by_id(file_id)
+
 def get_stats() -> Dict[str, Any]:
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -137,3 +162,4 @@ def get_stats() -> Dict[str, Any]:
             "pending": total - downloaded,
             "grades_count": grades
         }
+

@@ -90,6 +90,16 @@
                     </div>
 
                     <div class="viewer-controls">
+                        <!-- AUTO-SCROLL TOGGLE BUTTON -->
+                        <button id="btn-auto-scroll" class="btn btn-warning" onclick="toggleAutoScroll()">
+                            <span class="icon">▶️</span> <span id="auto-scroll-text">Auto-Scroll</span>
+                        </button>
+
+                        <!-- FINISH & EXTRACT TEXT BUTTON -->
+                        <button id="btn-finish-extract" class="btn btn-purple" onclick="finishAndExtractText()">
+                            <span class="icon">💾</span> Finish & Extract Text
+                        </button>
+
                         <!-- BIG DISABLE JAVASCRIPT TOGGLE BUTTON -->
                         <button id="btn-toggle-js" class="btn btn-js-toggle active-nojs" onclick="toggleJS()">
                             <span class="toggle-icon">🚫</span>
@@ -99,11 +109,11 @@
 
                         <!-- EXPLICIT DOWNLOAD NO-JS BUTTON -->
                         <button id="btn-download-nojs" class="btn btn-download-action" onclick="downloadActiveFileNoJS()">
-                            <span class="icon">📥</span> Download PDF (No-JS)
+                            <span class="icon">📥</span> Download PDF
                         </button>
 
                         <button id="btn-mark-done" class="btn btn-success" onclick="markActiveFileDone()">
-                            <span class="icon">✅</span> Mark as Done
+                            <span class="icon">✅</span> Mark Done
                         </button>
                         
                         <button id="btn-reload" class="btn btn-secondary" onclick="reloadStream()">
@@ -123,7 +133,7 @@
                     
                     <div class="stream-footer">
                         <span id="stream-url-display">URL: disconnected</span>
-                        <span class="keyboard-hint">💡 Tip: Click "Disable JavaScript" or "Download PDF (No-JS)" to bypass GDrive viewer</span>
+                        <span class="keyboard-hint">💡 Tip: Click "Auto-Scroll" to record screens, then "Finish & Extract Text" when done.</span>
                     </div>
                 </div>
             </main>
@@ -133,6 +143,9 @@
     <!-- Custom Right-Click Context Menu -->
     <div id="context-menu" class="context-menu">
         <div class="menu-header">Playwright View Actions</div>
+        <div class="menu-item highlight-purple" onclick="contextFinishExtract()">
+            <span class="menu-icon">💾</span> Finish & Extract Text (Celery OCR)
+        </div>
         <div class="menu-item highlight" onclick="contextMarkDone()">
             <span class="menu-icon">✅</span> Mark File as Done (Downloaded)
         </div>
@@ -140,6 +153,9 @@
             <span class="menu-icon">📥</span> Download PDF File (No-JS Direct)
         </div>
         <div class="menu-divider"></div>
+        <div class="menu-item" onclick="contextToggleAutoScroll()">
+            <span class="menu-icon">▶️</span> Toggle Auto-Scroll
+        </div>
         <div class="menu-item" onclick="contextToggleJS()">
             <span class="menu-icon">⚡</span> Toggle JavaScript Mode
         </div>
@@ -151,6 +167,24 @@
             <span class="menu-icon">🖱️</span> Send Native Right-Click to Browser
         </div>
     </div>
+
+    <!-- Extracted Text Modal -->
+    <div id="text-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>📄 Extracted Text Content</h3>
+                <button class="btn btn-sm btn-secondary" onclick="closeTextModal()">✕ Close</button>
+            </div>
+            <div class="modal-body">
+                <textarea id="modal-text-content" readonly placeholder="No text extracted yet..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="copyExtractedText()">📋 Copy Text</button>
+                <button class="btn btn-secondary" onclick="closeTextModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
 
     <script src="/static/js/app.js"></script>
 </body>
