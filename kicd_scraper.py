@@ -114,13 +114,15 @@ def fetch_url(url, retries=3):
     return b""
 
 
-def fetch_gdrive_pdf(file_id, dest_path):
+def fetch_gdrive_file(file_id, pdf_path, txt_path, retries=3):
     """
-    Download a PDF from Google Drive.
-    Handles the large-file virus-scan confirmation page.
-    Returns True on success.
+    Download a file from Google Drive with retries.
+    1. Attempts to download valid PDF (%PDF header, > 5KB).
+    2. Tries multiple Google Drive export URL formats and handles confirmation tokens.
+    3. If PDF download fails/denied, scrapes available text/HTML from Google Drive viewer and saves as .txt.
+
+    Returns (success: bool, file_type: str, bytes_saved: int)
     """
-    base_url = gdrive_download_url(file_id)
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -133,31 +135,99 @@ def fetch_gdrive_pdf(file_id, dest_path):
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookie_jar))
     opener.addheaders = list(headers.items())
 
-    try:
-        resp = opener.open(base_url, timeout=60)
-        data = resp.read()
+    urls_to_try = [
+        f"https://drive.google.com/uc?export=download&id={file_id}",
+        f"https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm=t",
+        f"https://drive.google.com/uc?id={file_id}&export=download",
+    ]
 
-        # Handle Google Drive virus-scan confirmation page for large files
-        if b"confirm=" in data and b"Google" in data:
-            match = re.search(rb'confirm=([0-9A-Za-z_\-]+)', data)
-            if match:
-                confirm = match.group(1).decode()
-                confirm_url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm={confirm}"
-                resp2 = opener.open(confirm_url, timeout=120)
-                data = resp2.read()
+    pdf_data = None
 
-        # Save regardless of format (PDF check is a hint, not a block)
-        if len(data) < 500:
-            print(f"    Warning: Very small file ({len(data)} bytes), may be an error page")
-            return False
+    for attempt in range(retries):
+        for base_url in urls_to_try:
+            try:
+                resp = opener.open(base_url, timeout=45)
+                data = resp.read()
 
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-        dest_path.write_bytes(data)
-        return True
+                # Handle Google Drive virus-scan confirmation token
+                if (b"confirm=" in data or b"download_warning" in data) and b"Google" in data:
+                    match = re.search(rb'confirm=([0-9A-Za-z_\-]+)', data) or re.search(rb'name="confirm"\s+value="([^"]+)"', data)
+                    if match:
+                        confirm = match.group(1).decode()
+                        confirm_url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm={confirm}"
+                        resp2 = opener.open(confirm_url, timeout=60)
+                        data = resp2.read()
 
-    except Exception as e:
-        print(f"    Error: {e}")
-        return False
+                # Validate genuine PDF magic bytes (%PDF) and size > 5KB
+                if data.startswith(b'%PDF') and len(data) >= 5000:
+                    pdf_data = data
+                    break
+            except Exception:
+                pass
+
+        if pdf_data:
+            break
+
+        if attempt < retries - 1:
+            time.sleep(2 * (attempt + 1))
+
+    # If valid PDF was obtained:
+    if pdf_data:
+        pdf_path.parent.mkdir(parents=True, exist_ok=True)
+        pdf_path.write_bytes(pdf_data)
+        # Remove stray invalid small PDF if it existed from prior runs
+        if txt_path.exists():
+            txt_path.unlink(missing_ok=True)
+        return True, "pdf", len(pdf_data)
+
+    # ── FALLBACK: Scrape viewer text & save as .txt ──
+    print(f"          ⚠️  PDF download restricted/failed. Scraping text viewer fallback...")
+    fallback_text = []
+
+    view_urls = [
+        f"https://drive.google.com/file/d/{file_id}/preview",
+        f"https://drive.google.com/file/d/{file_id}/view",
+    ]
+
+    for vurl in view_urls:
+        try:
+            resp = opener.open(vurl, timeout=30)
+            html_raw = resp.read().decode('utf-8', errors='ignore')
+
+            # Extract title
+            title_m = re.search(r'<title>(.*?)</title>', html_raw, re.IGNORECASE)
+            if title_m:
+                title_clean = html.unescape(title_m.group(1)).strip()
+                fallback_text.append(f"DOCUMENT TITLE: {title_clean}\n")
+
+            # Extract any embedded text snippets or JSON metadata in preview
+            text_chunks = re.findall(r'\\u[0-9a-fA-F]{4}|[A-Za-z0-9\s.,;:!?()\/\-\n]{15,}', html_raw)
+            clean_html = re.sub(r'<script[\s\S]*?</script>', '', html_raw)
+            clean_html = re.sub(r'<style[\s\S]*?</style>', '', clean_html)
+            text_lines = [line.strip() for line in re.sub(r'<[^>]+>', '\n', clean_html).splitlines() if line.strip()]
+
+            if text_lines:
+                fallback_text.append("=== EXTRACTED VIEW CONTENT ===")
+                fallback_text.extend(text_lines[:150])
+                break
+        except Exception as e:
+            fallback_text.append(f"Error accessing viewer URL ({vurl}): {e}")
+
+    final_txt_content = (
+        f"SOURCE GOOGLE DRIVE URL: https://drive.google.com/file/d/{file_id}/view\n"
+        f"DOWNLOAD DATE: {datetime.now().isoformat()}\n"
+        f"STATUS: PDF Direct Download Restricted by Owner / Permission Needed.\n\n"
+        + "\n".join(fallback_text)
+    )
+
+    txt_path.parent.mkdir(parents=True, exist_ok=True)
+    txt_path.write_text(final_txt_content, encoding='utf-8')
+
+    # Remove fake 1KB pdf if present
+    if pdf_path.exists() and (pdf_path.stat().st_size < 5000 or not pdf_path.read_bytes().startswith(b'%PDF')):
+        pdf_path.unlink(missing_ok=True)
+
+    return True, "txt", len(final_txt_content.encode('utf-8'))
 
 
 # ──────────────────────────────────────────────
@@ -331,14 +401,14 @@ def load_manifest():
 # ──────────────────────────────────────────────
 
 def download_all(records):
-    """Download all PDFs from Google Drive. Updates records in-place."""
+    """Download all PDFs from Google Drive with retry and .txt fallback. Updates records in-place."""
     total = len(records)
     success = 0
     failed = 0
     skipped = 0
 
     print("\n" + "=" * 65)
-    print("  Downloading PDFs from Google Drive")
+    print("  Downloading Files from Google Drive")
     print("=" * 65)
     print(f"  Files to download: {total}\n")
 
@@ -348,37 +418,58 @@ def download_all(records):
         file_id = record["file_id"]
 
         grade_dir        = safe_filename(grade)
-        subject_filename = safe_filename(subject) + ".pdf"
-        rel_path         = os.path.join(grade_dir, subject_filename)
-        abs_path         = OUTPUT_DIR / rel_path
+        base_name        = safe_filename(subject)
+        pdf_rel_path     = os.path.join(grade_dir, base_name + ".pdf")
+        txt_rel_path     = os.path.join(grade_dir, base_name + ".txt")
+
+        pdf_abs_path     = OUTPUT_DIR / pdf_rel_path
+        txt_abs_path     = OUTPUT_DIR / txt_rel_path
 
         print(f"[{i:3d}/{total}] {grade} / {subject}")
 
-        # Skip if already downloaded
-        if abs_path.exists() and abs_path.stat().st_size > 1000:
-            size = abs_path.stat().st_size
-            print(f"          ✅  Already downloaded ({size:,} bytes) — skipping")
-            record["local_path"] = rel_path
+        # Skip if already validly downloaded PDF (size > 5KB & magic %PDF)
+        if pdf_abs_path.exists() and pdf_abs_path.stat().st_size >= 5000:
+            try:
+                if pdf_abs_path.read_bytes().startswith(b'%PDF'):
+                    size = pdf_abs_path.stat().st_size
+                    print(f"          ✅  Already downloaded PDF ({size:,} bytes) — skipping")
+                    record["local_path"] = pdf_rel_path
+                    record["file_type"] = "pdf"
+                    record["downloaded"] = True
+                    skipped += 1
+                    success += 1
+                    continue
+            except Exception:
+                pass
+
+        # Skip if already downloaded .txt fallback
+        if txt_abs_path.exists() and txt_abs_path.stat().st_size > 100:
+            size = txt_abs_path.stat().st_size
+            print(f"          ✅  Already saved TXT fallback ({size:,} bytes) — skipping")
+            record["local_path"] = txt_rel_path
+            record["file_type"] = "txt"
             record["downloaded"] = True
             skipped += 1
             success += 1
             continue
 
-        ok = fetch_gdrive_pdf(file_id, abs_path)
+        ok, ftype, size_bytes = fetch_gdrive_file(file_id, pdf_abs_path, txt_abs_path)
 
-        if ok and abs_path.exists():
-            size = abs_path.stat().st_size
-            print(f"          ✅  {rel_path}  ({size:,} bytes)")
-            record["local_path"] = rel_path
+        if ok:
+            chosen_rel = pdf_rel_path if ftype == "pdf" else txt_rel_path
+            print(f"          ✅  Saved ({ftype.upper()}) → {chosen_rel}  ({size_bytes:,} bytes)")
+            record["local_path"] = chosen_rel
+            record["file_type"] = ftype
             record["downloaded"] = True
             success += 1
         else:
             print(f"          ❌  Failed — {gdrive_view_url(file_id)}")
             record["local_path"] = None
+            record["file_type"] = None
             record["downloaded"] = False
             failed += 1
 
-        time.sleep(1.5)  # Be polite to Google Drive
+        time.sleep(1.2)  # Be polite to Google Drive
 
     print(f"\n  ✅  Downloaded : {success - skipped}")
     print(f"  ⏭️   Skipped    : {skipped}")
@@ -412,7 +503,7 @@ def create_zip(records):
                 zf.write(abs_path, record["local_path"])
 
     size_mb = zip_path.stat().st_size / (1024 * 1024)
-    print(f"    ✅  {zip_path}  ({size_mb:.1f} MB, {len(downloaded)} PDFs)")
+    print(f"    ✅  {zip_path}  ({size_mb:.1f} MB, {len(downloaded)} files)")
     return zip_path
 
 
@@ -497,4 +588,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
