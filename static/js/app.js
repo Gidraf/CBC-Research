@@ -230,6 +230,53 @@ function copyExtractedText() {
     alert('Copied extracted text to clipboard!');
 }
 
+async function saveTextContent(fileId, content) {
+    if (!fileId) {
+        alert('Please select a file first.');
+        return;
+    }
+    try {
+        const resp = await fetch(`/api/files/${fileId}/save-text`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: content })
+        });
+        if (resp.ok) {
+            const data = await resp.json();
+            alert(`✅ Text file saved successfully!\nSaved to: ${data.text_path}`);
+            await fetchStats();
+            await fetchFiles();
+        } else {
+            alert('Failed saving text file.');
+        }
+    } catch (e) {
+        alert('Error saving text: ' + e.message);
+    }
+}
+
+function saveLiveText() {
+    const content = document.getElementById('live-text-box').value;
+    saveTextContent(currentFileId, content);
+}
+
+function saveModalText() {
+    const content = document.getElementById('modal-text-content').value;
+    saveTextContent(currentFileId, content);
+}
+
+function downloadLiveTextFile() {
+    if (!currentFileId) {
+        alert('Please select a file first.');
+        return;
+    }
+    window.open(`/api/files/${currentFileId}/download-text`, '_blank');
+}
+
+function downloadModalTextFile() {
+    downloadLiveTextFile();
+}
+
+
 // Direct No-JS Downloader Function
 async function downloadFileNoJS(fileId) {
     streamOverlay.classList.remove('hidden');

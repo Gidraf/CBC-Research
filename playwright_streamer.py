@@ -92,12 +92,42 @@ class PlaywrightStreamSession:
         if self.is_auto_scrolling:
             return
         self.is_auto_scrolling = True
-        self.auto_scroll_task = asyncio.create_task(self._auto_scroll_loop())
+        
         await self.websocket.send_json({
             "type": "status",
-            "message": "Auto-scrolling started (~350px / 1.5s). Screenshots recording...",
+            "message": "Warming up: Pre-scrolling to bottom (3 passes) to force Google Drive to lazy-load all pages...",
             "auto_scrolling": True
         })
+
+        # 3-Pass Pre-Scroll Warmup to trigger lazy-loading of all PDF pages in Google Drive
+        if self.page:
+            try:
+                for pass_num in range(1, 4):
+                    await self.page.evaluate("""() => {
+                        window.scrollTo(0, document.body ? document.body.scrollHeight : 100000);
+                        let scrollables = document.querySelectorAll('div, iframe, body, [role="main"], [tabindex="0"], .ndfHFb-c4Qvld');
+                        scrollables.forEach(el => {
+                            try { el.scrollTop = el.scrollHeight; } catch(e) {}
+                        });
+                        let iframes = document.querySelectorAll('iframe');
+                        iframes.forEach(iframe => {
+                            try {
+                                let iWin = iframe.contentWindow;
+                                let iDoc = iframe.contentDocument || iWin.document;
+                                if (iWin) iWin.scrollTo(0, 100000);
+                                if (iDoc) {
+                                    if (iDoc.body) iDoc.body.scrollTop = iDoc.body.scrollHeight;
+                                    let iScrolls = iDoc.querySelectorAll('div, [role="main"]');
+                                    iScrolls.forEach(el => el.scrollTop = el.scrollHeight);
+                                }
+                            } catch(e) {}
+                        });
+                    }""")
+                    await asyncio.sleep(0.4)
+            except Exception as warmup_err:
+                logger.warning(f"Warmup scroll warning: {warmup_err}")
+
+        self.auto_scroll_task = asyncio.create_task(self._auto_scroll_loop())
 
     async def stop_auto_scroll(self):
         self.is_auto_scrolling = False
@@ -114,63 +144,75 @@ class PlaywrightStreamSession:
         self.temp_dir.mkdir(parents=True, exist_ok=True)
         while self.is_auto_scrolling and self.page and self.is_running:
             try:
-                # Capture frame for OCR before scroll step
                 self.screenshot_count += 1
-                img_path = self.temp_dir / f"step_{self.screenshot_count:04d}.png"
-                try:
-                    await self.page.screenshot(path=str(img_path))
-                except Exception as shot_err:
-                    logger.warning(f"Screenshot step error: {shot_err}")
 
-                # 1. Dispatch PageDown keypress to advance Google Drive viewer pages
+                # Update scroll position tracker & page estimate
+                self.last_scroll_pos += 1200
+                self.last_page = max(1, (self.last_scroll_pos // 600) + 1)
+
+                if self.screenshot_count % 3 == 0:
+                    database.update_file_progress(self.file_id, self.last_page, self.last_scroll_pos)
+
+                # 1. Dispatch PageDown keypress
                 try:
                     await self.page.keyboard.press("PageDown")
-                except Exception as key_err:
+                except Exception:
                     pass
 
-                # 2. Scroll outer window, inner body, and any iframe or GDrive PDF viewer container
+                # 2. High-speed multi-page scroll (1200px step)
                 await self.page.evaluate("""() => {
-                    window.scrollBy(0, 500);
-                    if (document.body) document.body.scrollTop += 500;
-                    if (document.documentElement) document.documentElement.scrollTop += 500;
+                    window.scrollBy(0, 1200);
+                    if (document.body) document.body.scrollTop += 1200;
+                    if (document.documentElement) document.documentElement.scrollTop += 1200;
 
-                    // Target Google Drive Drive Viewer / Drive PDF scroll containers
                     let scrollables = document.querySelectorAll('div, iframe, body, [role="main"], [tabindex="0"], .ndfHFb-c4Qvld');
                     scrollables.forEach(el => {
                         try {
-                            if (el.scrollHeight > el.clientHeight) {
-                                el.scrollTop += 500;
-                            }
+                            if (el.scrollHeight > el.clientHeight) el.scrollTop += 1200;
                         } catch(e) {}
                     });
 
-                    // Scroll inside inner iframes if accessible
                     let iframes = document.querySelectorAll('iframe');
                     iframes.forEach(iframe => {
                         try {
                             let iWin = iframe.contentWindow;
                             let iDoc = iframe.contentDocument || iWin.document;
-                            if (iWin) iWin.scrollBy(0, 500);
+                            if (iWin) iWin.scrollBy(0, 1200);
                             if (iDoc) {
-                                if (iDoc.body) iDoc.body.scrollTop += 500;
-                                if (iDoc.documentElement) iDoc.documentElement.scrollTop += 500;
+                                if (iDoc.body) iDoc.body.scrollTop += 1200;
+                                if (iDoc.documentElement) iDoc.documentElement.scrollTop += 1200;
                                 let iScrolls = iDoc.querySelectorAll('div, [role="main"]');
                                 iScrolls.forEach(el => {
-                                    if (el.scrollHeight > el.clientHeight) el.scrollTop += 500;
+                                    if (el.scrollHeight > el.clientHeight) el.scrollTop += 1200;
                                 });
                             }
                         } catch(e) {}
                     });
                 }""")
 
-                # 3. Extract live DOM innerText and stream real-time over WebSocket
+                # 3. High-Speed DOM Text Selection & Extraction
                 try:
-                    live_text = await self.page.evaluate("""() => {
+                    current_step = self.screenshot_count
+                    live_text = await self.page.evaluate("""(step) => {
                         let parts = [];
-                        if (document.body && document.body.innerText) parts.push(document.body.innerText);
+                        
+                        // Select all text in document body if possible
+                        try {
+                            if (window.getSelection && document.body) {
+                                let sel = window.getSelection();
+                                let range = document.createRange();
+                                range.selectNodeContents(document.body);
+                                sel.removeAllRanges();
+                                sel.addRange(range);
+                            }
+                        } catch(e) {}
+
+                        if (document.body && document.body.innerText) {
+                            parts.push(document.body.innerText);
+                        }
 
                         let iframes = document.querySelectorAll('iframe');
-                        iframes.forEach(iframe => {
+                        iframes.forEach((iframe) => {
                             try {
                                 let iDoc = iframe.contentDocument || iframe.contentWindow.document;
                                 if (iDoc && iDoc.body && iDoc.body.innerText) {
@@ -178,21 +220,35 @@ class PlaywrightStreamSession:
                                 }
                             } catch(e) {}
                         });
-                        return parts.join('\\n\\n=== SECTION ===\\n\\n');
-                    }""")
+                        
+                        let header = `================================================================================\\n📄 FAST MULTI-PAGE EXTRACT / STEP ${step}\\n================================================================================\\n\\n`;
+                        return header + parts.join('\\n\\n================================================================================\\n📄 PAGE SUB-SECTION\\n================================================================================\\n\\n');
+                    }""", current_step)
 
                     if live_text and len(live_text.strip()) > 10:
                         await self.websocket.send_json({
                             "type": "live_text",
                             "file_id": self.file_id,
                             "text": live_text,
-                            "step": self.screenshot_count
+                            "step": self.screenshot_count,
+                            "last_page": self.last_page,
+                            "last_scroll_pos": self.last_scroll_pos
                         })
                 except Exception as text_err:
                     logger.warning(f"Live text extraction step warning: {text_err}")
+
+                # Save screenshot frame periodically (every 2 steps) to save I/O time
+                if self.screenshot_count % 2 == 0:
+                    img_path = self.temp_dir / f"step_{self.screenshot_count:04d}.png"
+                    try:
+                        await self.page.screenshot(path=str(img_path))
+                    except Exception:
+                        pass
                 
-                # Sleep 1.5s for human-readable scrolling
-                await asyncio.sleep(1.5)
+                # Fast step delay (300ms for high-speed scrolling)
+                await asyncio.sleep(0.3)
+
+
 
 
             except asyncio.CancelledError:
@@ -253,7 +309,10 @@ class PlaywrightStreamSession:
     async def navigate_to_file(self, file_id: str, mode: str = "auto"):
         self.file_id = file_id
         file_rec = database.get_file_by_id(file_id)
-        
+        if file_rec:
+            self.last_scroll_pos = file_rec.get("last_scroll_pos", 0) or 0
+            self.last_page = file_rec.get("last_page", 1) or 1
+
         if self.js_enabled:
             self.current_url = f"https://drive.google.com/file/d/{file_id}/preview"
         else:
@@ -268,6 +327,25 @@ class PlaywrightStreamSession:
 
             await self.page.goto(self.current_url, wait_until="domcontentloaded", timeout=30000)
 
+            # Restore previous scroll position if continuing session
+            if self.last_scroll_pos > 0:
+                await asyncio.sleep(1.0)
+                await self.page.evaluate(f"""() => {{
+                    window.scrollTo(0, {self.last_scroll_pos});
+                    let scrollables = document.querySelectorAll('div, iframe, body, [role="main"], .ndfHFb-c4Qvld');
+                    scrollables.forEach(el => {{
+                        try {{
+                            if (el.scrollHeight > el.clientHeight) el.scrollTop = {self.last_scroll_pos};
+                        }} catch(e) {{}}
+                    }});
+                }}""")
+                await self.websocket.send_json({
+                    "type": "status",
+                    "message": f"Resumed document at last saved position (Page ~{self.last_page}, {self.last_scroll_pos}px)",
+                    "last_page": self.last_page,
+                    "last_scroll_pos": self.last_scroll_pos
+                })
+
             if not self.js_enabled:
                 if await self.page.locator("#uc-download-link").is_visible():
                     await self.page.locator("#uc-download-link").click()
@@ -276,6 +354,7 @@ class PlaywrightStreamSession:
 
         except Exception as e:
             logger.warning(f"Navigation warning for {self.current_url}: {e}")
+
 
     async def toggle_javascript(self, enable: Optional[bool] = None):
         if enable is not None:

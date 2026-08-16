@@ -146,10 +146,14 @@
                     <!-- Live Real-Time Text Stream Panel -->
                     <div class="live-text-panel" id="live-text-panel">
                         <div class="panel-header">
-                            <span class="panel-title">⚡ Live Real-Time Extracted Text</span>
-                            <button class="btn btn-sm btn-secondary" onclick="copyLiveText()">📋 Copy</button>
+                            <span class="panel-title">⚡ Live Real-Time Text</span>
+                            <div style="display:flex; gap:5px;">
+                                <button class="btn btn-sm btn-success" onclick="saveLiveText()">💾 Save</button>
+                                <button class="btn btn-sm btn-primary" onclick="downloadLiveTextFile()">⬇️ TXT</button>
+                                <button class="btn btn-sm btn-secondary" onclick="copyLiveText()">📋 Copy</button>
+                            </div>
                         </div>
-                        <textarea id="live-text-box" readonly placeholder="Text will stream here in real-time as document scrolls..."></textarea>
+                        <textarea id="live-text-box" placeholder="Text will stream here in real-time as document scrolls..."></textarea>
                     </div>
                 </div>
 
@@ -197,14 +201,17 @@
                 <button class="btn btn-sm btn-secondary" onclick="closeTextModal()">✕ Close</button>
             </div>
             <div class="modal-body">
-                <textarea id="modal-text-content" readonly placeholder="No text extracted yet..."></textarea>
+                <textarea id="modal-text-content" placeholder="No text extracted yet..."></textarea>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-primary" onclick="copyExtractedText()">📋 Copy Text</button>
+                <button class="btn btn-success" onclick="saveModalText()">💾 Save Text</button>
+                <button class="btn btn-primary" onclick="downloadModalTextFile()">⬇️ Download .TXT</button>
+                <button class="btn btn-secondary" onclick="copyExtractedText()">📋 Copy</button>
                 <button class="btn btn-secondary" onclick="closeTextModal()">Close</button>
             </div>
         </div>
     </div>
+
 
 
     <script src="/static/js/app.js"></script>

@@ -119,15 +119,42 @@ def finish_and_extract_file(file_id: str):
 @app.get("/api/files/{file_id}/text")
 def get_extracted_text(file_id: str):
     file_rec = database.get_file_by_id(file_id)
-    if not file_rec or not file_rec.get("text_path"):
-        raise HTTPException(status_code=404, detail="Extracted text not found for this file.")
-    text_file = Path(file_rec["text_path"])
+    text_file = Path(f"extracted_text/{file_id}_extracted.txt")
+    if file_rec and file_rec.get("text_path") and Path(file_rec["text_path"]).exists():
+        text_file = Path(file_rec["text_path"])
+    
     if not text_file.exists():
         raise HTTPException(status_code=404, detail="Extracted text file does not exist.")
     return {"file_id": file_id, "content": text_file.read_text(encoding="utf-8")}
 
+class SaveTextRequest(BaseModel):
+    content: str
+
+@app.post("/api/files/{file_id}/save-text")
+def save_extracted_text(file_id: str, req: SaveTextRequest):
+    out_dir = Path("extracted_text")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    text_file = out_dir / f"{file_id}_extracted.txt"
+    text_file.write_text(req.content, encoding="utf-8")
+    updated = database.update_extracted_text(file_id, str(text_file))
+    return {"status": "success", "file_id": file_id, "text_path": str(text_file), "record": updated}
+
+@app.get("/api/files/{file_id}/download-text")
+def download_extracted_text_file(file_id: str):
+    from fastapi.responses import FileResponse
+    text_file = Path(f"extracted_text/{file_id}_extracted.txt")
+    file_rec = database.get_file_by_id(file_id)
+    if file_rec and file_rec.get("text_path") and Path(file_rec["text_path"]).exists():
+        text_file = Path(file_rec["text_path"])
+    
+    if not text_file.exists():
+        raise HTTPException(status_code=404, detail="Text file not found.")
+    
+    filename = f"{file_rec['grade']}_{file_rec['subject']}_extracted.txt".replace(" ", "_") if file_rec else f"{file_id}_extracted.txt"
+    return FileResponse(path=str(text_file), filename=filename, media_type="text/plain")
 
 @app.get("/api/stats")
+
 def get_system_stats():
     return database.get_stats()
 

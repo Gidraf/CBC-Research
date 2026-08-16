@@ -40,11 +40,20 @@ def init_db():
             cursor.execute("ALTER TABLE files ADD COLUMN text_extracted INTEGER DEFAULT 0;")
         except Exception:
             pass
+        try:
+            cursor.execute("ALTER TABLE files ADD COLUMN last_scroll_pos INTEGER DEFAULT 0;")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE files ADD COLUMN last_page INTEGER DEFAULT 1;")
+        except Exception:
+            pass
 
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_file_id ON files(file_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_grade ON files(grade);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_downloaded ON files(downloaded);")
         conn.commit()
+
 
 
 def upsert_file(grade: str, subject: str, file_id: str, google_drive_url: str, download_url: str, local_path: Optional[str] = None, downloaded: bool = False) -> Dict[str, Any]:
@@ -146,6 +155,19 @@ def update_extracted_text(file_id: str, text_path: str) -> Optional[Dict[str, An
         """, (text_path, now, file_id))
         conn.commit()
     return get_file_by_id(file_id)
+
+def update_file_progress(file_id: str, last_page: int = 1, last_scroll_pos: int = 0) -> Optional[Dict[str, Any]]:
+    now = datetime.now().isoformat()
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE files 
+            SET last_page = ?, last_scroll_pos = ?, updated_at = ? 
+            WHERE file_id = ?
+        """, (last_page, last_scroll_pos, now, file_id))
+        conn.commit()
+    return get_file_by_id(file_id)
+
 
 def get_stats() -> Dict[str, Any]:
     with get_connection() as conn:
