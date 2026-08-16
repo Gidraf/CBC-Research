@@ -313,16 +313,6 @@ function connectWebSocket(fileId) {
 }
 
 
-    ws.onclose = () => {
-        streamOverlay.classList.remove('hidden');
-        overlayStatusText.textContent = 'Stream disconnected. Click a file to reconnect.';
-    };
-
-    ws.onerror = (err) => {
-        console.error('WebSocket Error:', err);
-    };
-}
-
 // BIG BUTTON: Toggle JavaScript
 function toggleJS() {
     jsEnabled = !jsEnabled;
