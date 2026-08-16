@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  gdrive-viewer:
+    build: .
+    container_name: gdrive_playwright_viewer
+    ports:
+      - "5550:5550"
+    volumes:
+      - ./downloads:/app/downloads
+      - ./gdrive_files.db:/app/gdrive_files.db
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped

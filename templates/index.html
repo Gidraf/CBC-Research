@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Drive Playwright Control & No-JS Viewer</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-layout">
+        <!-- Top Navigation Header -->
+        <header class="app-header">
+            <div class="brand">
+                <div class="logo-icon">⚡</div>
+                <div class="brand-text">
+                    <h1>GDrive Playwright Viewer</h1>
+                    <span class="subtitle">Google Drive Link Extractor & No-JS Stream Control</span>
+                </div>
+            </div>
+            
+            <div class="header-stats">
+                <div class="stat-pill">
+                    <span class="stat-label">Total Files</span>
+                    <span class="stat-value" id="stat-total">0</span>
+                </div>
+                <div class="stat-pill success">
+                    <span class="stat-label">Downloaded</span>
+                    <span class="stat-value" id="stat-downloaded">0</span>
+                </div>
+                <div class="stat-pill warning">
+                    <span class="stat-label">Pending</span>
+                    <span class="stat-value" id="stat-pending">0</span>
+                </div>
+            </div>
+
+            <div class="header-actions">
+                <button id="btn-extract" class="btn btn-primary" onclick="extractAllFiles()">
+                    <span class="icon">🔍</span> Extract KICD Links
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Body Layout: Split Sidebar & Viewer -->
+        <div class="app-body">
+            <!-- Sidebar / File List -->
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <h2>Extracted Files</h2>
+                    <span class="badge" id="file-count-badge">0 items</span>
+                </div>
+
+                <!-- Filters & Search -->
+                <div class="sidebar-controls">
+                    <input type="text" id="search-input" placeholder="Search subject or grade..." oninput="fetchFiles()">
+                    <div class="filter-group">
+                        <select id="grade-filter" onchange="fetchFiles()">
+                            <option value="">All Grades</option>
+                        </select>
+                        <select id="status-filter" onchange="fetchFiles()">
+                            <option value="">All Status</option>
+                            <option value="pending">Pending</option>
+                            <option value="downloaded">Downloaded</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Custom URL Add Form -->
+                <div class="add-url-box">
+                    <input type="text" id="custom-url-input" placeholder="Paste GDrive URL or File ID...">
+                    <button class="btn btn-sm btn-secondary" onclick="addCustomUrl()">Add</button>
+                </div>
+
+                <!-- Files List Container -->
+                <div class="files-list" id="files-list">
+                    <div class="empty-state">Loading files...</div>
+                </div>
+            </aside>
+
+            <!-- Main Content Area: Playwright Live View -->
+            <main class="viewer-container">
+                <!-- Viewer Top Bar Controls -->
+                <div class="viewer-bar">
+                    <div class="active-file-info">
+                        <span class="active-grade" id="active-grade">Select a file</span>
+                        <h3 class="active-subject" id="active-subject">No document open</h3>
+                        <span class="active-id" id="active-id">---</span>
+                    </div>
+
+                    <div class="viewer-controls">
+                        <!-- BIG DISABLE JAVASCRIPT TOGGLE BUTTON -->
+                        <button id="btn-toggle-js" class="btn btn-js-toggle active-nojs" onclick="toggleJS()">
+                            <span class="toggle-icon">🚫</span>
+                            <span class="toggle-text">DISABLE JAVASCRIPT</span>
+                            <span class="status-indicator" id="js-status-pill">No-JS ACTIVE</span>
+                        </button>
+
+                        <button id="btn-mark-done" class="btn btn-success" onclick="markActiveFileDone()">
+                            <span class="icon">✅</span> Mark as Done
+                        </button>
+                        
+                        <button id="btn-reload" class="btn btn-secondary" onclick="reloadStream()">
+                            <span class="icon">🔄</span> Reload
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Live Stream Canvas View -->
+                <div class="stream-wrapper" id="stream-wrapper">
+                    <div class="stream-overlay" id="stream-overlay">
+                        <div class="spinner"></div>
+                        <p id="overlay-status-text">Click a file from the left sidebar to start Playwright viewer</p>
+                    </div>
+                    
+                    <img id="stream-frame" class="stream-frame" alt="Playwright Live View" tabindex="0">
+                    
+                    <div class="stream-footer">
+                        <span id="stream-url-display">URL: disconnected</span>
+                        <span class="keyboard-hint">💡 Tip: Right-click inside view for options or to mark done</span>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Custom Right-Click Context Menu -->
+    <div id="context-menu" class="context-menu">
+        <div class="menu-header">Playwright View Actions</div>
+        <div class="menu-item highlight" onclick="contextMarkDone()">
+            <span class="menu-icon">✅</span> Mark File as Done (Downloaded)
+        </div>
+        <div class="menu-divider"></div>
+        <div class="menu-item" onclick="contextToggleJS()">
+            <span class="menu-icon">⚡</span> Toggle JavaScript Mode
+        </div>
+        <div class="menu-item" onclick="contextReload()">
+            <span class="menu-icon">🔄</span> Reload Page
+        </div>
+        <div class="menu-divider"></div>
+        <div class="menu-item" onclick="contextPassRightClick()">
+            <span class="menu-icon">🖱️</span> Send Native Right-Click to Browser
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
