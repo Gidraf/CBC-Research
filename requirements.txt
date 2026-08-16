@@ -8,3 +8,5 @@ pillow>=9.5.0
 celery>=5.3.0
 redis>=4.6.0
 pytesseract>=0.3.10
+pypdf>=3.17.0
+

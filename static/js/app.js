@@ -142,12 +142,28 @@ function selectFile(fileId) {
 
     const liveBox = document.getElementById('live-text-box');
     if (liveBox) {
-        liveBox.value = `Initializing text stream for ${fileObj.subject} (${fileObj.grade})...\nClick "▶️ Auto-Scroll" to start real-time text extraction as document scrolls.`;
+        liveBox.value = `Loading saved background extracted text for ${fileObj.subject} (${fileObj.grade})...`;
     }
 
     renderFilesList(allFiles);
+    loadSavedTextIfAvailable(fileId);
     connectWebSocket(fileId);
 }
+
+async function loadSavedTextIfAvailable(fileId) {
+    try {
+        const resp = await fetch(`/api/files/${fileId}/text`);
+        if (resp.ok) {
+            const data = await resp.json();
+            const liveBox = document.getElementById('live-text-box');
+            if (liveBox && data.content) {
+                liveBox.value = data.content;
+                liveBox.scrollTop = liveBox.scrollHeight;
+            }
+        }
+    } catch(e) {}
+}
+
 
 
 
