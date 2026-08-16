@@ -25,45 +25,46 @@ def perform_ocr_extraction(file_id: str, dom_text: str = "") -> str:
     # Check if DOM innerText has rich text content (>150 chars)
     clean_dom = dom_text.strip() if dom_text else ""
     
-    if len(clean_dom) > 150:
-        logger.info(f"Using high-fidelity Playwright DOM innerText ({len(clean_dom)} chars)")
+    # Process OCR on all recorded screenshots across the full document
+    screenshot_files = sorted(session_dir.glob("step_*.png")) if session_dir.exists() else []
+    if not screenshot_files and session_dir.exists():
+        screenshot_files = sorted(session_dir.glob("*.png")) + sorted(session_dir.glob("*.jpg"))
+
+    logger.info(f"Processing {len(screenshot_files)} screenshots for file {file_id}...")
+
+    extracted_sections = []
+    has_tesseract = True
+    try:
+        import pytesseract
+    except ImportError:
+        has_tesseract = False
+
+    for idx, img_path in enumerate(screenshot_files, start=1):
+        section_text = f"=== SECTION {idx} ==="
+        try:
+            img = Image.open(img_path)
+            if has_tesseract:
+                try:
+                    text = pytesseract.image_to_string(img)
+                    text = text.strip()
+                    if text:
+                        extracted_sections.append(f"{section_text}\n{text}")
+                except Exception as ocr_err:
+                    logger.warning(f"Tesseract OCR warning on step {idx}: {ocr_err}")
+        except Exception as e:
+            logger.error(f"Error reading screenshot {img_path}: {e}")
+
+    ocr_text = "\n\n".join(extracted_sections)
+
+    if ocr_text and clean_dom:
+        full_text = f"{clean_dom}\n\n==================== FULL SCREENSHOT OCR TEXT ====================\n\n{ocr_text}"
+    elif ocr_text:
+        full_text = ocr_text
+    elif clean_dom:
         full_text = clean_dom
     else:
-        # Fallback to screenshot OCR
-        screenshot_files = sorted(session_dir.glob("step_*.png")) if session_dir.exists() else []
-        if not screenshot_files and session_dir.exists():
-            screenshot_files = sorted(session_dir.glob("*.png")) + sorted(session_dir.glob("*.jpg"))
+        full_text = "No text content extracted."
 
-        logger.info(f"Processing {len(screenshot_files)} screenshots for file {file_id}...")
-
-        extracted_sections = []
-        has_tesseract = True
-        try:
-            import pytesseract
-        except ImportError:
-            has_tesseract = False
-
-        for idx, img_path in enumerate(screenshot_files, start=1):
-            section_text = f"=== SECTION {idx} ==="
-            try:
-                img = Image.open(img_path)
-                if has_tesseract:
-                    try:
-                        text = pytesseract.image_to_string(img)
-                        text = text.strip()
-                        if text:
-                            extracted_sections.append(f"{section_text}\n{text}")
-                        else:
-                            extracted_sections.append(f"{section_text}\n[No text detected on screen {idx}]")
-                    except Exception as ocr_err:
-                        logger.warning(f"Tesseract OCR warning on step {idx}: {ocr_err}")
-                        extracted_sections.append(f"{section_text}\n[OCR extraction unavailable on step {idx}]")
-                else:
-                    extracted_sections.append(f"{section_text}\n[PyTesseract not installed]")
-            except Exception as e:
-                logger.error(f"Error reading screenshot {img_path}: {e}")
-
-        full_text = "\n\n".join(extracted_sections) if extracted_sections else (clean_dom or "No text content extracted.")
 
     # Save to extracted_text/{file_id}_extracted.txt
     text_filename = f"{file_id}_extracted.txt"

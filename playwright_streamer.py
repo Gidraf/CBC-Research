@@ -122,20 +122,63 @@ class PlaywrightStreamSession:
                 except Exception as shot_err:
                     logger.warning(f"Screenshot step error: {shot_err}")
 
-                # Extract live DOM innerText and stream real-time over WebSocket
+                # 1. Dispatch PageDown keypress to advance Google Drive viewer pages
+                try:
+                    await self.page.keyboard.press("PageDown")
+                except Exception as key_err:
+                    pass
+
+                # 2. Scroll outer window, inner body, and any iframe or GDrive PDF viewer container
+                await self.page.evaluate("""() => {
+                    window.scrollBy(0, 500);
+                    if (document.body) document.body.scrollTop += 500;
+                    if (document.documentElement) document.documentElement.scrollTop += 500;
+
+                    // Target Google Drive Drive Viewer / Drive PDF scroll containers
+                    let scrollables = document.querySelectorAll('div, iframe, body, [role="main"], [tabindex="0"], .ndfHFb-c4Qvld');
+                    scrollables.forEach(el => {
+                        try {
+                            if (el.scrollHeight > el.clientHeight) {
+                                el.scrollTop += 500;
+                            }
+                        } catch(e) {}
+                    });
+
+                    // Scroll inside inner iframes if accessible
+                    let iframes = document.querySelectorAll('iframe');
+                    iframes.forEach(iframe => {
+                        try {
+                            let iWin = iframe.contentWindow;
+                            let iDoc = iframe.contentDocument || iWin.document;
+                            if (iWin) iWin.scrollBy(0, 500);
+                            if (iDoc) {
+                                if (iDoc.body) iDoc.body.scrollTop += 500;
+                                if (iDoc.documentElement) iDoc.documentElement.scrollTop += 500;
+                                let iScrolls = iDoc.querySelectorAll('div, [role="main"]');
+                                iScrolls.forEach(el => {
+                                    if (el.scrollHeight > el.clientHeight) el.scrollTop += 500;
+                                });
+                            }
+                        } catch(e) {}
+                    });
+                }""")
+
+                # 3. Extract live DOM innerText and stream real-time over WebSocket
                 try:
                     live_text = await self.page.evaluate("""() => {
-                        let text = document.body ? document.body.innerText : '';
+                        let parts = [];
+                        if (document.body && document.body.innerText) parts.push(document.body.innerText);
+
                         let iframes = document.querySelectorAll('iframe');
                         iframes.forEach(iframe => {
                             try {
                                 let iDoc = iframe.contentDocument || iframe.contentWindow.document;
                                 if (iDoc && iDoc.body && iDoc.body.innerText) {
-                                    text += '\\n\\n' + iDoc.body.innerText;
+                                    parts.push(iDoc.body.innerText);
                                 }
                             } catch(e) {}
                         });
-                        return text;
+                        return parts.join('\\n\\n=== SECTION ===\\n\\n');
                     }""")
 
                     if live_text and len(live_text.strip()) > 10:
@@ -147,17 +190,16 @@ class PlaywrightStreamSession:
                         })
                 except Exception as text_err:
                     logger.warning(f"Live text extraction step warning: {text_err}")
-
-                # Perform human-speed scroll step (~350px down)
-                await self.page.evaluate("window.scrollBy(0, 350);")
                 
                 # Sleep 1.5s for human-readable scrolling
                 await asyncio.sleep(1.5)
+
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Auto-scroll loop error: {e}")
+
                 await asyncio.sleep(1.0)
 
 
