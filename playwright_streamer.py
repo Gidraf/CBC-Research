@@ -653,75 +653,64 @@ class PlaywrightStreamSession:
         if captured_text and len(captured_text.strip()) > 10:
             import re
             lines = [l.strip() for l in captured_text.split('\n') if l.strip()]
-            cur_p = action.get("page") or self.last_page or 1
             tot_p = 67
+            
+            # Detect total pages first
             for l in lines:
                 m = re.search(r'(?:Page\s+(\d+)|\b(\d+))\s*(?:of|\/)\s*(\d+)', l, re.IGNORECASE)
                 if m:
-                    cur_p = int(m.group(1) or m.group(2))
                     tot_p = int(m.group(3))
+                    break
 
-            self.captured_pages_set.add(cur_p)
+            # Parse DOM text into page-specific map
+            page_text_map = {}
+            current_detected_p = action.get("page") or self.last_page or 1
 
-            # Inject vivid glowing green border & page badge directly into DOM for live screenshot stream
+            for line in lines:
+                pm = re.search(r'(?:Page\s+(\d+)|\b(\d+))\s*(?:of|\/)\s*(\d+)', line, re.IGNORECASE)
+                if pm:
+                    p_val = int(pm.group(1) or pm.group(2))
+                    if 0 < p_val <= 2000:
+                        current_detected_p = p_val
+                
+                if current_detected_p not in page_text_map:
+                    page_text_map[current_detected_p] = []
+                
+                if line not in page_text_map[current_detected_p] and not line.startswith("==="):
+                    page_text_map[current_detected_p].append(line)
 
-            try:
-                await self.page.evaluate("""(targetP) => {
-                    let containers = document.querySelectorAll('.ndfHFb-c4Qvld, [role="region"], div[id*="page"]');
-                    containers.forEach((el, idx) => {
-                        let pNum = idx + 1;
-                        if (pNum === targetP || targetP === 0) {
-                            el.style.border = '6px solid #22c55e';
-                            el.style.boxShadow = '0 0 30px rgba(34, 197, 94, 0.95), inset 0 0 40px rgba(34, 197, 94, 0.35)';
-                            el.style.position = 'relative';
-                            
-                            let badge = el.querySelector('.vivid-capture-badge');
-                            if (!badge) {
-                                badge = document.createElement('div');
-                                badge.className = 'vivid-capture-badge';
-                                badge.style.position = 'absolute';
-                                badge.style.top = '15px';
-                                badge.style.right = '15px';
-                                badge.style.backgroundColor = 'rgba(34, 197, 94, 0.95)';
-                                badge.style.color = '#ffffff';
-                                badge.style.padding = '8px 18px';
-                                badge.style.borderRadius = '20px';
-                                badge.style.fontWeight = '800';
-                                badge.style.fontSize = '14px';
-                                badge.style.boxShadow = '0 4px 15px rgba(0, 0, 0, 0.6)';
-                                badge.style.zIndex = '999999';
-                                el.appendChild(badge);
-                            }
-                            badge.innerHTML = '📄 PAGE ' + (targetP || pNum) + ' CAPTURED ✓';
-                        }
-                    });
-                }""", cur_p)
-            except Exception:
-                pass
-
+            # Update extracted_text file cleanly for each captured page
             text_file_path = Path("extracted_text") / f"{self.file_id}_extracted.txt"
             existing_content = text_file_path.read_text(encoding="utf-8") if text_file_path.exists() else ""
             
-            new_block = f"================================================================================\n📄 PAGE {cur_p} OF {tot_p}\n================================================================================\n\n{captured_text.strip()}"
-            
-            # Support Multi-Pass Re-Capture: Replace or Append block
-            page_pattern = rf"================================================================================\n📄 PAGE {cur_p} OF \d+\n================================================================================\n\n[\s\S]*?(?================================================================================|$)"
-            if re.search(page_pattern, existing_content):
-                existing_content = re.sub(page_pattern, new_block, existing_content)
-            else:
-                existing_content = (existing_content + f"\n\n{new_block}").strip()
-            
+            for p_num, p_lines in page_text_map.items():
+                real_len = sum(len(l) for l in p_lines if l not in ["Page", "/", "\\"] and not re.match(r'^Page\s+\d+\s*(?:of|\/)\s*\d+$', l, re.IGNORECASE))
+                if real_len < 15:
+                    continue
+
+                self.captured_pages_set.add(p_num)
+                page_body = "\n".join(p_lines)
+                new_block = f"================================================================================\n📄 PAGE {p_num} OF {tot_p}\n================================================================================\n\n{page_body.strip()}"
+                
+                page_pattern = rf"================================================================================\n📄 PAGE {p_num} OF \d+\n================================================================================\n\n[\s\S]*?(?================================================================================|$)"
+                if re.search(page_pattern, existing_content):
+                    existing_content = re.sub(page_pattern, new_block, existing_content)
+                else:
+                    existing_content = (existing_content + f"\n\n{new_block}").strip()
+
             text_file_path.write_text(existing_content, encoding="utf-8")
             database.update_extracted_text(self.file_id, str(text_file_path))
-            database.update_file_page_status(self.file_id, tot_p, [cur_p])
+            database.update_file_page_status(self.file_id, tot_p, list(self.captured_pages_set))
+
 
             await self._send_ws_json({
                 "type": "live_text",
                 "file_id": self.file_id,
                 "text": existing_content,
                 "total_pages": tot_p,
-                "status_message": f"Captured Page {cur_p} Text via Manual Control!"
+                "status_message": f"Captured Page(s) {sorted(list(page_text_map.keys()))} Text via Manual Control!"
             })
+
 
 
 
