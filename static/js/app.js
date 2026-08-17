@@ -179,7 +179,14 @@ function flashScreenHighlight(pageNum, isCaptured = true) {
     if (overlay) {
         overlay.className = 'stream-flash-overlay active';
     }
+
+    if (flashTimer) clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => {
+        if (overlay) overlay.className = 'stream-flash-overlay';
+        if (badge) badge.className = 'stream-page-badge';
+    }, 1200);
 }
+
 
 
 function renderPageGrid(statusObj) {

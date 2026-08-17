@@ -761,7 +761,24 @@ class PlaywrightStreamSession:
                             }
 
                             let setObj = new Set(fetchedList);
-                            let containers = document.querySelectorAll('.ndfHFb-c4Qvld, [role="region"], div[id*="page"]');
+
+                            function getIndividualPageContainers() {
+                                let pageEls = Array.from(document.querySelectorAll('.drive-viewer-page, .ndfHFb-c4Qvld-page, [role="region"][aria-label*="Page"], [data-page-number]'));
+                                if (pageEls.length > 0) return pageEls;
+
+                                let parent = document.querySelector('.ndfHFb-c4Qvld') || document.body;
+                                if (parent) {
+                                    let children = Array.from(parent.querySelectorAll('div, img, canvas, section'));
+                                    let pageCards = children.filter(el => {
+                                        let rect = el.getBoundingClientRect();
+                                        return rect.width > 250 && rect.height > 350 && rect.width < window.innerWidth * 0.92 && rect.height < window.innerHeight * 0.92;
+                                    });
+                                    if (pageCards.length > 0) return pageCards;
+                                }
+                                return [];
+                            }
+
+                            let containers = getIndividualPageContainers();
                             containers.forEach((el, idx) => {
                                 let pNum = idx + 1;
                                 if (setObj.has(pNum)) {
@@ -775,11 +792,18 @@ class PlaywrightStreamSession:
                                         badge.innerHTML = '📄 PAGE ' + pNum + ' CAPTURED ✓';
                                         el.appendChild(badge);
                                     }
+                                } else {
+                                    if (el.classList.contains('captured-page-permanent')) {
+                                        el.classList.remove('captured-page-permanent');
+                                    }
+                                    let badge = el.querySelector('.vivid-capture-badge');
+                                    if (badge) badge.remove();
                                 }
                             });
                         }""", list(self.captured_pages_set))
                     except Exception:
                         pass
+
 
 
                 screenshot_bytes = await self.page.screenshot(type="jpeg", quality=60)
