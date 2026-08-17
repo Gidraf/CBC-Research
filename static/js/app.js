@@ -3,11 +3,12 @@ let currentFileObj = null;
 let ws = null;
 let jsEnabled = false;
 let allFiles = [];
-let currentTab = 'todo';
+let currentTab = 'all';
 
 // DOM Elements
 const searchInput = document.getElementById('search-input');
 const gradeFilter = document.getElementById('grade-filter');
+const statusFilter = document.getElementById('status-filter');
 const filesList = document.getElementById('files-list');
 
 const activeGrade = document.getElementById('active-grade');
@@ -31,10 +32,16 @@ document.addEventListener('DOMContentLoaded', () => {
     setupGlobalContextMenuDismiss();
 });
 
-// Tab Switcher Handler (To Do, In Progress, Completed)
+// Tab Switcher Handler (All, To Do, Active, Done)
 function switchSidebarTab(tabName) {
     currentTab = tabName;
+    const statusSelect = document.getElementById('status-filter');
+    if (statusSelect) {
+        statusSelect.value = tabName;
+    }
+
     const tabMap = {
+        'all': 'tab-all',
         'todo': 'tab-todo',
         'in_progress': 'tab-in-progress',
         'completed': 'tab-completed'
@@ -54,7 +61,14 @@ function switchSidebarTab(tabName) {
     fetchFiles();
 }
 
-// Fetch Stats & Update 3-Tab Count Badges
+function syncDropdownToTab() {
+    const statusSelect = document.getElementById('status-filter');
+    if (statusSelect) {
+        switchSidebarTab(statusSelect.value);
+    }
+}
+
+// Fetch Stats & Update Tab Count Badges
 async function fetchStats() {
     try {
         const resp = await fetch('/api/stats');
@@ -63,10 +77,12 @@ async function fetchStats() {
         document.getElementById('stat-downloaded').textContent = data.completed || data.downloaded || 0;
         document.getElementById('stat-pending').textContent = data.todo || data.pending || 0;
 
+        const countAll = document.getElementById('tab-count-all');
         const countTodo = document.getElementById('tab-count-todo');
         const countInProgress = document.getElementById('tab-count-in-progress');
         const countCompleted = document.getElementById('tab-count-completed');
 
+        if (countAll) countAll.textContent = data.total || 0;
         if (countTodo) countTodo.textContent = data.todo || 0;
         if (countInProgress) countInProgress.textContent = data.in_progress || 0;
         if (countCompleted) countCompleted.textContent = data.completed || 0;
@@ -74,6 +90,7 @@ async function fetchStats() {
         console.error('Error fetching stats:', e);
     }
 }
+
 
 // Fetch Files List with 3-Tab Status Filter
 async function fetchFiles() {

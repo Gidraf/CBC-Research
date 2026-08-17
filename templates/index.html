@@ -52,13 +52,16 @@
                     <span class="badge" id="file-count-badge">0 items</span>
                 </div>
 
-                <!-- 3 TAB NAVIGATION: To Do, In Progress, Completed -->
+                <!-- TAB NAVIGATION: All, To Do, In Progress, Completed -->
                 <div class="sidebar-tabs" id="sidebar-tabs">
-                    <button class="tab-btn active" id="tab-todo" onclick="switchSidebarTab('todo')">
+                    <button class="tab-btn active" id="tab-all" onclick="switchSidebarTab('all')">
+                        <span>📁</span> All <span class="tab-badge" id="tab-count-all">0</span>
+                    </button>
+                    <button class="tab-btn" id="tab-todo" onclick="switchSidebarTab('todo')">
                         <span>📋</span> To Do <span class="tab-badge" id="tab-count-todo">0</span>
                     </button>
                     <button class="tab-btn" id="tab-in-progress" onclick="switchSidebarTab('in_progress')">
-                        <span>⏳</span> In Progress <span class="tab-badge" id="tab-count-in-progress">0</span>
+                        <span>⏳</span> Active <span class="tab-badge" id="tab-count-in-progress">0</span>
                     </button>
                     <button class="tab-btn" id="tab-completed" onclick="switchSidebarTab('completed')">
                         <span>✅</span> Done <span class="tab-badge" id="tab-count-completed">0</span>
@@ -72,8 +75,15 @@
                         <select id="grade-filter" onchange="fetchFiles()">
                             <option value="">All Grades</option>
                         </select>
+                        <select id="status-filter" onchange="syncDropdownToTab()">
+                            <option value="all">All Status</option>
+                            <option value="todo">To Do</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="completed">Completed</option>
+                        </select>
                     </div>
                 </div>
+
 
 
                 <!-- Custom URL Add Form -->

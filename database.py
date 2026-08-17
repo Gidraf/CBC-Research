@@ -66,6 +66,8 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_grade ON files(grade);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_downloaded ON files(downloaded);")
         conn.commit()
+    sync_disk_files_status()
+
 
 
 
@@ -87,6 +89,52 @@ def upsert_file(grade: str, subject: str, file_id: str, google_drive_url: str, d
         conn.commit()
     return get_file_by_id(file_id)
 
+def sync_disk_files_status():
+    """Scans disk directories and updates SQLite status for backward compatibility."""
+    downloads_dir = Path("downloads")
+    extracted_dir = Path("extracted_text")
+    
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        
+        # 1. Sync files where local_path or text_path or extracted_content is populated
+        cursor.execute("""
+            UPDATE files 
+            SET downloaded = 1 
+            WHERE (local_path IS NOT NULL AND local_path != '') 
+               OR (text_path IS NOT NULL AND text_path != '')
+               OR (extracted_content IS NOT NULL AND extracted_content != '');
+        """)
+        
+        # 2. Check extracted_text directory for text files
+        if extracted_dir.exists():
+            for txt_file in extracted_dir.glob("*_extracted.txt"):
+                file_id = txt_file.name.replace("_extracted.txt", "")
+                content = txt_file.read_text(encoding="utf-8") if txt_file.stat().st_size > 0 else None
+                if content:
+                    cursor.execute("""
+                        UPDATE files 
+                        SET downloaded = 1, text_extracted = 1, text_path = ?, extracted_content = COALESCE(extracted_content, ?)
+                        WHERE file_id = ?;
+                    """, (str(txt_file), content, file_id))
+                else:
+                    cursor.execute("""
+                        UPDATE files 
+                        SET downloaded = 1, text_extracted = 1, text_path = ?
+                        WHERE file_id = ?;
+                    """, (str(txt_file), file_id))
+                    
+        # 3. Check downloads directory for PDF files
+        if downloads_dir.exists():
+            for pdf_file in downloads_dir.glob("*"):
+                if pdf_file.is_file() and pdf_file.stat().st_size > 0:
+                    for r in cursor.execute("SELECT file_id FROM files").fetchall():
+                        fid = r["file_id"]
+                        if fid in pdf_file.name:
+                            cursor.execute("UPDATE files SET downloaded = 1, local_path = ? WHERE file_id = ?", (str(pdf_file), fid))
+
+        conn.commit()
+
 def get_all_files(grade_filter: Optional[str] = None, status_filter: Optional[str] = None, search: Optional[str] = None) -> List[Dict[str, Any]]:
     query = "SELECT * FROM files WHERE 1=1"
     params = []
@@ -95,12 +143,13 @@ def get_all_files(grade_filter: Optional[str] = None, status_filter: Optional[st
         query += " AND grade = ?"
         params.append(grade_filter)
         
-    if status_filter == "completed" or status_filter == "downloaded":
-        query += " AND (downloaded = 1 OR text_extracted = 1)"
+    if status_filter in ["completed", "downloaded"]:
+        query += " AND (downloaded = 1 OR text_extracted = 1 OR (local_path IS NOT NULL AND local_path != '') OR (text_path IS NOT NULL AND text_path != ''))"
     elif status_filter == "in_progress":
-        query += " AND (downloaded = 0 AND text_extracted = 0) AND (last_page > 1 OR (fetched_pages_json IS NOT NULL AND fetched_pages_json != '[]'))"
-    elif status_filter == "todo" or status_filter == "pending":
-        query += " AND (downloaded = 0 AND text_extracted = 0) AND (last_page <= 1 AND (fetched_pages_json IS NULL OR fetched_pages_json = '[]'))"
+        query += " AND (downloaded = 0 AND text_extracted = 0 AND (local_path IS NULL OR local_path = '') AND (text_path IS NULL OR text_path = '')) AND (last_page > 1 OR (fetched_pages_json IS NOT NULL AND fetched_pages_json != '[]'))"
+    elif status_filter in ["todo", "pending"]:
+        query += " AND (downloaded = 0 AND text_extracted = 0 AND (local_path IS NULL OR local_path = '') AND (text_path IS NULL OR text_path = '')) AND (last_page <= 1 AND (fetched_pages_json IS NULL OR fetched_pages_json = '[]'))"
+    # If status_filter is "all" or None or "", no status WHERE clause is added -> returns all files!
         
     if search:
         query += " AND (subject LIKE ? OR grade LIKE ? OR file_id LIKE ?)"
@@ -108,6 +157,7 @@ def get_all_files(grade_filter: Optional[str] = None, status_filter: Optional[st
         params.extend([pattern, pattern, pattern])
         
     query += " ORDER BY grade ASC, subject ASC"
+
 
     
     with get_connection() as conn:
