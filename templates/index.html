@@ -141,7 +141,19 @@
                     </div>
 
                     <button id="btn-manual-capture" class="btn btn-sm btn-success-bright" onclick="manualCapturePageText()" style="font-weight:700;">
-                        <span class="icon">📸</span> Capture Current Page Text (HTML/JS)
+                        <span class="icon">📸</span> Capture Text
+                    </button>
+                    
+                    <button id="btn-download-txt" class="btn btn-sm btn-primary" onclick="downloadExtractedTxtFile()" title="Download extracted .txt file">
+                        <span class="icon">📥</span> Download .txt
+                    </button>
+
+                    <button id="btn-sync-langfuse" class="btn btn-sm btn-warning" onclick="syncExtractedTextToLangfuse()" title="Sync text to Langfuse dataset">
+                        <span class="icon">🚀</span> Sync Langfuse
+                    </button>
+
+                    <button class="btn btn-sm btn-secondary" onclick="openLangfuseModal()" title="Configure Langfuse API Keys">
+                        <span class="icon">⚙️</span> Config
                     </button>
                 </div>
 
@@ -172,7 +184,10 @@
                         <div class="panel-header">
                             <span class="panel-title">⚡ Live Real-Time Text</span>
                             <div style="display:flex; gap:5px;">
+                                <button class="btn btn-sm btn-primary" onclick="downloadExtractedTxtFile()">📥 Download .txt</button>
+                                <button class="btn btn-sm btn-warning" onclick="syncExtractedTextToLangfuse()">🚀 Langfuse</button>
                                 <button class="btn btn-sm btn-success" onclick="saveLiveText()">💾 Save</button>
+
                                 <button class="btn btn-sm btn-primary" onclick="downloadLiveTextFile()">⬇️ TXT</button>
                                 <button class="btn btn-sm btn-secondary" onclick="copyLiveText()">📋 Copy</button>
                             </div>
@@ -254,6 +269,38 @@
 
 
 
+    <!-- LANGFUSE CONFIGURATION MODAL -->
+    <div id="langfuse-modal" class="modal-overlay hidden">
+        <div class="modal-card" style="max-width: 520px;">
+            <div class="modal-header">
+                <h3>🚀 Langfuse API Configuration</h3>
+                <button class="btn btn-sm btn-secondary" onclick="closeLangfuseModal()">✕ Close</button>
+            </div>
+            <div class="modal-body" style="padding: 16px;">
+                <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px; line-height:1.5;">
+                    Enter your Langfuse keys below. They are saved in your browser local storage and used to sync extracted text directly as dataset items into Langfuse.
+                </p>
+                <div style="margin-bottom:10px;">
+                    <label style="font-size:12px; font-weight:600; color:var(--text-main); display:block; margin-bottom:4px;">Langfuse Host URL:</label>
+                    <input type="text" id="langfuse-host-input" placeholder="https://cloud.langfuse.com" style="width:100%; padding:8px 10px; border-radius:4px; background:var(--bg-main); border:1px solid var(--border-color); color:white;">
+                </div>
+                <div style="margin-bottom:10px;">
+                    <label style="font-size:12px; font-weight:600; color:var(--text-main); display:block; margin-bottom:4px;">Public Key (pk-lf-...):</label>
+                    <input type="text" id="langfuse-pk-input" placeholder="pk-lf-..." style="width:100%; padding:8px 10px; border-radius:4px; background:var(--bg-main); border:1px solid var(--border-color); color:white;">
+                </div>
+                <div style="margin-bottom:15px;">
+                    <label style="font-size:12px; font-weight:600; color:var(--text-main); display:block; margin-bottom:4px;">Secret Key (sk-lf-...):</label>
+                    <input type="password" id="langfuse-sk-input" placeholder="sk-lf-..." style="width:100%; padding:8px 10px; border-radius:4px; background:var(--bg-main); border:1px solid var(--border-color); color:white;">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-success" onclick="saveLangfuseCredentials()">💾 Save Keys</button>
+                <button class="btn btn-secondary" onclick="closeLangfuseModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/js/app.js"></script>
+
 </body>
 </html>

@@ -56,6 +56,11 @@ def init_db():
             cursor.execute("ALTER TABLE files ADD COLUMN fetched_pages_json TEXT DEFAULT '[]';")
         except Exception:
             pass
+        try:
+            cursor.execute("ALTER TABLE files ADD COLUMN extracted_content TEXT;")
+        except Exception:
+            pass
+
 
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_file_id ON files(file_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_grade ON files(grade);")
@@ -153,17 +158,38 @@ def toggle_downloaded(file_id: str) -> Optional[Dict[str, Any]]:
         conn.commit()
     return get_file_by_id(file_id)
 
-def update_extracted_text(file_id: str, text_path: str) -> Optional[Dict[str, Any]]:
+def update_extracted_text(file_id: str, text_path: str, content: Optional[str] = None) -> Optional[Dict[str, Any]]:
     now = datetime.now().isoformat()
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE files 
-            SET downloaded = 1, text_extracted = 1, text_path = ?, updated_at = ? 
-            WHERE file_id = ?
-        """, (text_path, now, file_id))
+        if content is not None:
+            cursor.execute("""
+                UPDATE files 
+                SET downloaded = 1, text_extracted = 1, text_path = ?, extracted_content = ?, updated_at = ? 
+                WHERE file_id = ?
+            """, (text_path, content, now, file_id))
+        else:
+            cursor.execute("""
+                UPDATE files 
+                SET downloaded = 1, text_extracted = 1, text_path = ?, updated_at = ? 
+                WHERE file_id = ?
+            """, (text_path, now, file_id))
         conn.commit()
     return get_file_by_id(file_id)
+
+def get_extracted_text(file_id: str) -> Optional[str]:
+    rec = get_file_by_id(file_id)
+    if not rec:
+        return None
+    if rec.get("extracted_content"):
+        return rec["extracted_content"]
+    text_path_str = rec.get("text_path")
+    if text_path_str:
+        p = Path(text_path_str)
+        if p.exists():
+            return p.read_text(encoding="utf-8")
+    return None
+
 
 def update_file_progress(file_id: str, last_page: int = 1, last_scroll_pos: int = 0) -> Optional[Dict[str, Any]]:
     now = datetime.now().isoformat()

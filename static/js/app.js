@@ -745,3 +745,97 @@ function manualCapturePageText() {
     }
 }
 
+// Download Extracted TXT File API Trigger
+function downloadExtractedTxtFile() {
+    if (!currentFileId) {
+        alert('Please select a file first.');
+        return;
+    }
+    window.location.href = `/api/files/${currentFileId}/download-text`;
+}
+
+// Langfuse Modal & API Sync Handlers
+function openLangfuseModal() {
+    const modal = document.getElementById('langfuse-modal');
+    if (!modal) return;
+    
+    document.getElementById('langfuse-host-input').value = localStorage.getItem('langfuse_host') || 'https://cloud.langfuse.com';
+    document.getElementById('langfuse-pk-input').value = localStorage.getItem('langfuse_pk') || '';
+    document.getElementById('langfuse-sk-input').value = localStorage.getItem('langfuse_sk') || '';
+    
+    modal.classList.remove('hidden');
+}
+
+function closeLangfuseModal() {
+    const modal = document.getElementById('langfuse-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function saveLangfuseCredentials() {
+    const host = document.getElementById('langfuse-host-input').value.trim();
+    const pk = document.getElementById('langfuse-pk-input').value.trim();
+    const sk = document.getElementById('langfuse-sk-input').value.trim();
+
+    if (!pk || !sk) {
+        alert('Please provide both Public Key and Secret Key for Langfuse.');
+        return;
+    }
+
+    localStorage.setItem('langfuse_host', host || 'https://cloud.langfuse.com');
+    localStorage.setItem('langfuse_pk', pk);
+    localStorage.setItem('langfuse_sk', sk);
+
+    alert('✅ Langfuse credentials saved successfully in local storage!');
+    closeLangfuseModal();
+}
+
+async function syncExtractedTextToLangfuse() {
+    if (!currentFileId) {
+        alert('Please select a file first.');
+        return;
+    }
+
+    const host = localStorage.getItem('langfuse_host') || 'https://cloud.langfuse.com';
+    const pk = localStorage.getItem('langfuse_pk');
+    const sk = localStorage.getItem('langfuse_sk');
+
+    if (!pk || !sk) {
+        alert('Langfuse credentials missing. Please configure your API keys first.');
+        openLangfuseModal();
+        return;
+    }
+
+    const syncBtn = document.getElementById('btn-sync-langfuse');
+    if (syncBtn) {
+        syncBtn.disabled = true;
+        syncBtn.innerHTML = '⏳ Syncing...';
+    }
+
+    try {
+        const resp = await fetch(`/api/files/${currentFileId}/sync-langfuse`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                public_key: pk,
+                secret_key: sk,
+                host_url: host
+            })
+        });
+
+        const data = await resp.json();
+        if (resp.ok && data.success) {
+            alert(`🚀 Langfuse Sync Successful!\n\n${data.message}`);
+        } else {
+            alert(`❌ Sync Failed:\n${data.detail || data.message || 'Unknown error'}`);
+        }
+    } catch (err) {
+        alert(`❌ Network or server error during Langfuse sync: ${err.message}`);
+    } finally {
+        if (syncBtn) {
+            syncBtn.disabled = false;
+            syncBtn.innerHTML = '<span class="icon">🚀</span> Sync Langfuse';
+        }
+    }
+}
+
+

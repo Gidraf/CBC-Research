@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
+
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -260,6 +261,120 @@ async def trigger_fetch_targeted_pages(file_id: str, req: FetchPagesRequest):
 @app.get("/api/stats")
 def get_system_stats():
     return database.get_stats()
+
+class LangfuseSyncRequest(BaseModel):
+    public_key: str
+    secret_key: str
+    host_url: Optional[str] = "https://cloud.langfuse.com"
+
+@app.get("/api/files/{file_id}/extracted-text")
+def get_extracted_text_api(file_id: str):
+    file_rec = database.get_file_by_id(file_id)
+    if not file_rec:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    text_content = database.get_extracted_text(file_id) or ""
+    status_info = get_file_page_status(file_id)
+    
+    return {
+        "success": True,
+        "file_id": file_id,
+        "grade": file_rec.get("grade"),
+        "subject": file_rec.get("subject"),
+        "text_content": text_content,
+        "total_pages": status_info.get("total_pages", 67),
+        "fetched_pages": status_info.get("fetched_pages", []),
+        "char_count": len(text_content)
+    }
+
+@app.get("/api/files/{file_id}/download-text")
+def download_extracted_text_api(file_id: str):
+    file_rec = database.get_file_by_id(file_id)
+    if not file_rec:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    text_content = database.get_extracted_text(file_id)
+    if not text_content:
+        raise HTTPException(status_code=404, detail="No extracted text available for this file yet")
+    
+    grade_clean = (file_rec.get("grade") or "file").replace(" ", "_")
+    subject_clean = (file_rec.get("subject") or file_id).replace(" ", "_")
+    filename = f"{grade_clean}_{subject_clean}_{file_id}_extracted.txt"
+    
+    return Response(
+        content=text_content,
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+@app.post("/api/files/{file_id}/sync-langfuse")
+async def sync_to_langfuse_api(file_id: str, req: LangfuseSyncRequest):
+    file_rec = database.get_file_by_id(file_id)
+    if not file_rec:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    text_content = database.get_extracted_text(file_id)
+    if not text_content:
+        raise HTTPException(status_code=400, detail="No extracted text available to sync. Please capture or scroll pages first.")
+    
+    if not req.public_key or not req.secret_key:
+        raise HTTPException(status_code=400, detail="Langfuse Public Key and Secret Key are required.")
+    
+    host_url = (req.host_url or "https://cloud.langfuse.com").rstrip("/")
+    status_info = get_file_page_status(file_id)
+    
+    import urllib.request
+    import urllib.error
+    import base64
+    import json
+    
+    endpoint = f"{host_url}/api/public/dataset-items"
+    
+    payload = {
+        "datasetName": "CBC_Research_Curriculum_Designs",
+        "input": {
+            "file_id": file_id,
+            "grade": file_rec.get("grade"),
+            "subject": file_rec.get("subject"),
+            "google_drive_url": file_rec.get("google_drive_url")
+        },
+        "expectedOutput": text_content,
+        "metadata": {
+            "total_pages": status_info.get("total_pages", 67),
+            "fetched_pages": status_info.get("fetched_pages", []),
+            "char_count": len(text_content),
+            "source": "CBC_Research_Playwright_Scraper"
+        }
+    }
+    
+    auth_str = f"{req.public_key}:{req.secret_key}"
+    b64_auth = base64.b64encode(auth_str.encode("utf-8")).decode("utf-8")
+    
+    req_obj = urllib.request.Request(
+        endpoint,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Basic {b64_auth}"
+        },
+        method="POST"
+    )
+    
+    try:
+        with urllib.request.urlopen(req_obj, timeout=15) as resp:
+            resp_body = resp.read().decode("utf-8")
+            return {
+                "success": True,
+                "file_id": file_id,
+                "message": "Successfully synced extracted text into Langfuse dataset 'CBC_Research_Curriculum_Designs'!",
+                "langfuse_response": json.loads(resp_body) if resp_body else {}
+            }
+    except urllib.error.HTTPError as http_err:
+        err_msg = http_err.read().decode("utf-8") if http_err.fp else str(http_err)
+        raise HTTPException(status_code=http_err.code, detail=f"Langfuse API Error: {err_msg}")
+    except Exception as err:
+        raise HTTPException(status_code=500, detail=f"Failed connecting to Langfuse host {host_url}: {err}")
+
 
 
 # WebSocket Stream Route

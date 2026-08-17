@@ -339,8 +339,9 @@ class PlaywrightStreamSession:
                         accumulated_full_text = "\n\n".join(formatted_pages)
                         text_file_path = Path("extracted_text") / f"{self.file_id}_extracted.txt"
                         text_file_path.write_text(accumulated_full_text, encoding="utf-8")
-                        database.update_extracted_text(self.file_id, str(text_file_path))
+                        database.update_extracted_text(self.file_id, str(text_file_path), accumulated_full_text)
                         database.update_file_progress(self.file_id, self.last_page, self.last_scroll_pos)
+
                         database.update_file_page_status(self.file_id, total_pages, list(captured_pages))
 
 
@@ -699,8 +700,9 @@ class PlaywrightStreamSession:
                     existing_content = (existing_content + f"\n\n{new_block}").strip()
 
             text_file_path.write_text(existing_content, encoding="utf-8")
-            database.update_extracted_text(self.file_id, str(text_file_path))
+            database.update_extracted_text(self.file_id, str(text_file_path), existing_content)
             database.update_file_page_status(self.file_id, tot_p, list(self.captured_pages_set))
+
 
 
             await self._send_ws_json({
