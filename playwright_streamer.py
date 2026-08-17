@@ -647,13 +647,50 @@ class PlaywrightStreamSession:
                     cur_p = int(m.group(1) or m.group(2))
                     tot_p = int(m.group(3))
 
+            # Inject vivid glowing green border & page badge directly into DOM for live screenshot stream
+            try:
+                await self.page.evaluate("""(targetP) => {
+                    let containers = document.querySelectorAll('.ndfHFb-c4Qvld, [role="region"], div[id*="page"]');
+                    containers.forEach((el, idx) => {
+                        let pNum = idx + 1;
+                        if (pNum === targetP || targetP === 0) {
+                            el.style.border = '6px solid #22c55e';
+                            el.style.boxShadow = '0 0 30px rgba(34, 197, 94, 0.95), inset 0 0 40px rgba(34, 197, 94, 0.35)';
+                            el.style.position = 'relative';
+                            
+                            let badge = el.querySelector('.vivid-capture-badge');
+                            if (!badge) {
+                                badge = document.createElement('div');
+                                badge.className = 'vivid-capture-badge';
+                                badge.style.position = 'absolute';
+                                badge.style.top = '15px';
+                                badge.style.right = '15px';
+                                badge.style.backgroundColor = 'rgba(34, 197, 94, 0.95)';
+                                badge.style.color = '#ffffff';
+                                badge.style.padding = '8px 18px';
+                                badge.style.borderRadius = '20px';
+                                badge.style.fontWeight = '800';
+                                badge.style.fontSize = '14px';
+                                badge.style.boxShadow = '0 4px 15px rgba(0, 0, 0, 0.6)';
+                                badge.style.zIndex = '999999';
+                                el.appendChild(badge);
+                            }
+                            badge.innerHTML = '📄 PAGE ' + (targetP || pNum) + ' CAPTURED ✓';
+                        }
+                    });
+                }""", cur_p)
+            except Exception:
+                pass
+
             text_file_path = Path("extracted_text") / f"{self.file_id}_extracted.txt"
             existing_content = text_file_path.read_text(encoding="utf-8") if text_file_path.exists() else ""
             
             new_block = f"================================================================================\n📄 PAGE {cur_p} OF {tot_p}\n================================================================================\n\n{captured_text.strip()}"
             
-            if f"📄 PAGE {cur_p} OF" in existing_content:
-                existing_content = re.sub(rf"================================================================================\n📄 PAGE {cur_p} OF \d+\n================================================================================\n\n[\s\S]*?(?================================================================================|$)", new_block, existing_content)
+            # Support Multi-Pass Re-Capture: Replace or Append block
+            page_pattern = rf"================================================================================\n📄 PAGE {cur_p} OF \d+\n================================================================================\n\n[\s\S]*?(?================================================================================|$)"
+            if re.search(page_pattern, existing_content):
+                existing_content = re.sub(page_pattern, new_block, existing_content)
             else:
                 existing_content = (existing_content + f"\n\n{new_block}").strip()
             
@@ -668,6 +705,7 @@ class PlaywrightStreamSession:
                 "total_pages": tot_p,
                 "status_message": f"Captured Page {cur_p} Text via Manual Control!"
             })
+
 
 
     async def _frame_broadcaster(self):

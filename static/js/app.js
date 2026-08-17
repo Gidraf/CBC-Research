@@ -593,7 +593,11 @@ function setupCanvasEvents() {
             y: coords.y,
             button: 'left'
         }));
+        ws.send(JSON.stringify({
+            action: 'manual_capture'
+        }));
     });
+
 
     streamFrame.addEventListener('wheel', (e) => {
         if (!ws || ws.readyState !== WebSocket.OPEN) return;
