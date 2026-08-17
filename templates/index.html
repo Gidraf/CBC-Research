@@ -171,6 +171,10 @@
                         <span class="icon">🚀</span> Sync Langfuse
                     </button>
 
+                    <button id="btn-reset-text" class="btn btn-sm btn-danger" onclick="resetFileExtractedText()" title="Discard extracted text & start over" style="background:#ef4444; color:white; font-weight:600;">
+                        <span class="icon">🗑️</span> Discard & Restart
+                    </button>
+
                     <button class="btn btn-sm btn-secondary" onclick="openLangfuseModal()" title="Configure Langfuse API Keys">
                         <span class="icon">⚙️</span> Config
                     </button>
@@ -206,11 +210,11 @@
                                 <button class="btn btn-sm btn-primary" onclick="downloadExtractedTxtFile()">📥 Download .txt</button>
                                 <button class="btn btn-sm btn-warning" onclick="syncExtractedTextToLangfuse()">🚀 Langfuse</button>
                                 <button class="btn btn-sm btn-success" onclick="saveLiveText()">💾 Save</button>
-
-                                <button class="btn btn-sm btn-primary" onclick="downloadLiveTextFile()">⬇️ TXT</button>
+                                <button class="btn btn-sm btn-danger" onclick="resetFileExtractedText()" style="background:#ef4444; color:white; font-weight:600;" title="Discard text & start over">🗑️ Discard & Restart</button>
                                 <button class="btn btn-sm btn-secondary" onclick="copyLiveText()">📋 Copy</button>
                             </div>
                         </div>
+
 
                         <!-- Interactive Page Extraction Checklist Grid -->
                         <div class="page-checklist-container">

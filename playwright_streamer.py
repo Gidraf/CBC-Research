@@ -611,7 +611,28 @@ class PlaywrightStreamSession:
         if not self.page:
             return
 
+        if act == "reset_text":
+            self.captured_pages_set.clear()
+            database.reset_extracted_text(self.file_id)
+            if self.page:
+                try:
+                    await self.page.evaluate("""() => {
+                        document.querySelectorAll('.captured-page-permanent').forEach(el => el.classList.remove('captured-page-permanent'));
+                        document.querySelectorAll('.vivid-capture-badge').forEach(el => el.remove());
+                    }""")
+                except Exception:
+                    pass
+            await self._send_ws_json({
+                "type": "live_text",
+                "file_id": self.file_id,
+                "text": "",
+                "total_pages": 67,
+                "status_message": "Extracted text discarded. Ready to restart capture!"
+            })
+            return
+
         if act == "manual_prev":
+
             await self.page.evaluate("""() => {
                 window.scrollBy(0, -750);
                 let scrollables = document.querySelectorAll('div, iframe, body, [role="main"], .ndfHFb-c4Qvld');

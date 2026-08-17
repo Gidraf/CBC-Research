@@ -171,6 +171,10 @@ function renderFilesList(files) {
                     <button class="btn btn-sm btn-purple" onclick="event.stopPropagation(); viewExtractedText('${f.file_id}')">
                         📄 Text
                     </button>` : ''}
+                    ${(isDownloaded || hasProgress) ? `
+                    <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); resetCardFileText('${f.file_id}')" style="background:#ef4444; color:white;" title="Discard text & restart">
+                        🗑️ Reset
+                    </button>` : ''}
                     <button class="btn btn-sm ${isDownloaded ? 'btn-secondary' : 'btn-success'}" onclick="event.stopPropagation(); toggleMarkDone('${f.file_id}')">
                         ${isDownloaded ? 'Done' : '✅ Mark'}
                     </button>
@@ -178,6 +182,7 @@ function renderFilesList(files) {
             </div>
         `;
     }).join('');
+
 }
 
 
@@ -894,5 +899,59 @@ async function syncExtractedTextToLangfuse() {
         }
     }
 }
+
+// Discard Extracted Text & Restart Extraction for Active File
+async function resetFileExtractedText() {
+    if (!currentFileId) {
+        alert('Please select a file first.');
+        return;
+    }
+    await performResetText(currentFileId);
+}
+
+// Discard Extracted Text & Restart Extraction for Specific Card File
+async function resetCardFileText(fileId) {
+    await performResetText(fileId);
+}
+
+async function performResetText(fileId) {
+    const targetObj = allFiles.find(f => f.file_id === fileId);
+    const label = targetObj ? `${targetObj.grade} - ${targetObj.subject}` : fileId;
+
+    const confirmed = confirm(`⚠️ Are you sure you want to discard all extracted text for:\n${label}?\n\nThis will clear captured text and allow you to start text capture fresh.`);
+    if (!confirmed) return;
+
+    try {
+        const resp = await fetch(`/api/files/${fileId}/reset-text`, {
+            method: 'POST'
+        });
+        const data = await resp.json();
+
+        if (resp.ok && data.status === 'success') {
+            if (fileId === currentFileId) {
+                const liveTextContent = document.getElementById('live-text-content');
+                if (liveTextContent) liveTextContent.value = '';
+                
+                const modalTextContent = document.getElementById('modal-text-content');
+                if (modalTextContent) modalTextContent.value = '';
+
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ action: 'reset_text' }));
+                }
+
+                fetchPageStatusGrid(fileId);
+            }
+
+            fetchFiles();
+            fetchStats();
+            alert('🗑️ Extracted text discarded successfully! You can now start text capture again.');
+        } else {
+            alert(`❌ Failed resetting text: ${data.detail || 'Unknown error'}`);
+        }
+    } catch (err) {
+        alert(`❌ Network or server error: ${err.message}`);
+    }
+}
+
 
 

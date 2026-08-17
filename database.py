@@ -244,7 +244,35 @@ def get_extracted_text(file_id: str) -> Optional[str]:
     return None
 
 
+def reset_extracted_text(file_id: str) -> Optional[Dict[str, Any]]:
+    """Clears extracted text, page progress, and resets file status for restarting extraction."""
+    now = datetime.now().isoformat()
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE files 
+            SET text_extracted = 0,
+                extracted_content = NULL,
+                last_page = 1,
+                last_scroll_pos = 0,
+                fetched_pages_json = '[]',
+                updated_at = ?
+            WHERE file_id = ?
+        """, (now, file_id))
+        conn.commit()
+
+    # Delete local text file if exists
+    text_path = Path("extracted_text") / f"{file_id}_extracted.txt"
+    if text_path.exists():
+        try:
+            text_path.unlink()
+        except Exception:
+            pass
+
+    return get_file_by_id(file_id)
+
 def update_file_progress(file_id: str, last_page: int = 1, last_scroll_pos: int = 0) -> Optional[Dict[str, Any]]:
+
     now = datetime.now().isoformat()
     with get_connection() as conn:
         cursor = conn.cursor()

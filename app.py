@@ -137,8 +137,23 @@ def save_extracted_text(file_id: str, req: SaveTextRequest):
     out_dir.mkdir(parents=True, exist_ok=True)
     text_file = out_dir / f"{file_id}_extracted.txt"
     text_file.write_text(req.content, encoding="utf-8")
-    updated = database.update_extracted_text(file_id, str(text_file))
+    updated = database.update_extracted_text(file_id, str(text_file), req.content)
     return {"status": "success", "file_id": file_id, "text_path": str(text_file), "record": updated}
+
+@app.post("/api/files/{file_id}/reset-text")
+def reset_file_text_api(file_id: str):
+    file_rec = database.get_file_by_id(file_id)
+    if not file_rec:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    updated = database.reset_extracted_text(file_id)
+    return {
+        "status": "success",
+        "file_id": file_id,
+        "message": "Extracted text information discarded and reset successfully. Ready to start text capture again!",
+        "record": updated
+    }
+
 
 @app.get("/api/files/{file_id}/download-text")
 def download_extracted_text_file(file_id: str):
