@@ -670,3 +670,41 @@ function escapeHtml(text) {
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
     }) : '';
 }
+
+// Manual Page Navigation & Text Capture Controls
+function manualPrevPage() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ action: 'manual_prev' }));
+    }
+}
+
+function manualNextPage() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ action: 'manual_next' }));
+    }
+}
+
+function manualJumpPage() {
+    const input = document.getElementById('manual-page-input');
+    const pNum = parseInt(input ? input.value : 1);
+    if (pNum && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ action: 'manual_jump', page: pNum }));
+    }
+}
+
+function manualCapturePageText() {
+    if (!currentFileId) {
+        alert('Please select a file first.');
+        return;
+    }
+    const input = document.getElementById('manual-page-input');
+    const pNum = input ? parseInt(input.value) : null;
+    
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            action: 'manual_capture',
+            page: pNum
+        }));
+    }
+}
+

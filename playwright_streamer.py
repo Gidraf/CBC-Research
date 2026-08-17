@@ -283,16 +283,26 @@ class PlaywrightStreamSession:
                         if line not in page_map[current_p] and not line.startswith("==="):
                             page_map[current_p].append(line)
 
-                    # Calculate missing pages
-                    captured_pages = set(page_map.keys())
+                    def has_real_page_content(lines: List[str]) -> bool:
+                        real_text_len = 0
+                        for l_str in lines:
+                            l = l_str.strip()
+                            if not l or l.startswith("==="):
+                                continue
+                            if l in ["Page", "/", "\\"] or re.match(r'^Page\s+\d+\s*(?:of|\/)\s*\d+$', l, re.IGNORECASE) or re.match(r'^\d+$', l):
+                                continue
+                            real_text_len += len(l)
+                        return real_text_len >= 15
+
+                    # Only count pages that contain TRULY FETCHED body content
+                    captured_pages = set(p for p in page_map.keys() if has_real_page_content(page_map[p]))
                     missing_pages = sorted(list(required_pages - captured_pages))
 
-                    # Save continuous progress
+                    # Save continuous progress for pages with real content
                     formatted_pages = []
-                    for p in sorted(page_map.keys()):
+                    for p in sorted(captured_pages):
                         p_content = "\n".join(page_map[p])
-                        if p_content.strip():
-                            formatted_pages.append(f"================================================================================\n📄 PAGE {p} OF {total_pages}\n================================================================================\n\n{p_content}")
+                        formatted_pages.append(f"================================================================================\n📄 PAGE {p} OF {total_pages}\n================================================================================\n\n{p_content}")
 
                     if formatted_pages:
                         accumulated_full_text = "\n\n".join(formatted_pages)
@@ -301,6 +311,7 @@ class PlaywrightStreamSession:
                         database.update_extracted_text(self.file_id, str(text_file_path))
                         database.update_file_progress(self.file_id, self.last_page, self.last_scroll_pos)
                         database.update_file_page_status(self.file_id, total_pages, list(captured_pages))
+
 
 
                         try:
@@ -546,6 +557,9 @@ class PlaywrightStreamSession:
                     self.current_url = url
                     await self.page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
+            elif act_type in ["manual_prev", "manual_next", "manual_jump", "manual_capture"]:
+                await self._handle_manual_navigation_and_capture(action)
+
             elif act_type == "mark_done":
                 rec = database.mark_as_downloaded(self.file_id)
                 await self._send_ws_json({
@@ -559,6 +573,85 @@ class PlaywrightStreamSession:
 
         except Exception as e:
             logger.error(f"Error handling action {act_type}: {e}")
+
+    async def _handle_manual_navigation_and_capture(self, action: Dict[str, Any]):
+        act = action.get("action")
+        if not self.page:
+            return
+
+        if act == "manual_prev":
+            await self.page.evaluate("""() => {
+                window.scrollBy(0, -750);
+                let scrollables = document.querySelectorAll('div, iframe, body, [role="main"], .ndfHFb-c4Qvld');
+                scrollables.forEach(el => { try { el.scrollTop -= 750; } catch(e) {} });
+            }""")
+            await asyncio.sleep(0.5)
+
+        elif act == "manual_next":
+            await self.page.evaluate("""() => {
+                window.scrollBy(0, 750);
+                let scrollables = document.querySelectorAll('div, iframe, body, [role="main"], .ndfHFb-c4Qvld');
+                scrollables.forEach(el => { try { el.scrollTop += 750; } catch(e) {} });
+            }""")
+            await asyncio.sleep(0.5)
+
+        elif act == "manual_jump":
+            target_p = action.get("page", 1)
+            target_y = (target_p - 1) * 750
+            await self.page.evaluate(f"""() => {{
+                window.scrollTo(0, {target_y});
+                let scrollables = document.querySelectorAll('div, iframe, body, [role="main"], .ndfHFb-c4Qvld');
+                scrollables.forEach(el => {{ try {{ el.scrollTop = {target_y}; }} catch(e) {{}} }});
+            }}""")
+            await asyncio.sleep(0.8)
+
+        # Execute text capture from current visible DOM
+        captured_text = await self.page.evaluate("""() => {
+            let parts = [];
+            if (document.body && document.body.innerText) parts.push(document.body.innerText);
+            let iframes = document.querySelectorAll('iframe');
+            iframes.forEach(iframe => {
+                try {
+                    let iDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    if (iDoc && iDoc.body && iDoc.body.innerText) parts.push(iDoc.body.innerText);
+                } catch(e) {}
+            });
+            return parts.join('\\n\\n');
+        }""")
+
+        if captured_text and len(captured_text.strip()) > 10:
+            import re
+            lines = [l.strip() for l in captured_text.split('\n') if l.strip()]
+            cur_p = action.get("page") or self.last_page or 1
+            tot_p = 67
+            for l in lines:
+                m = re.search(r'(?:Page\s+(\d+)|\b(\d+))\s*(?:of|\/)\s*(\d+)', l, re.IGNORECASE)
+                if m:
+                    cur_p = int(m.group(1) or m.group(2))
+                    tot_p = int(m.group(3))
+
+            text_file_path = Path("extracted_text") / f"{self.file_id}_extracted.txt"
+            existing_content = text_file_path.read_text(encoding="utf-8") if text_file_path.exists() else ""
+            
+            new_block = f"================================================================================\n📄 PAGE {cur_p} OF {tot_p}\n================================================================================\n\n{captured_text.strip()}"
+            
+            if f"📄 PAGE {cur_p} OF" in existing_content:
+                existing_content = re.sub(rf"================================================================================\n📄 PAGE {cur_p} OF \d+\n================================================================================\n\n[\s\S]*?(?================================================================================|$)", new_block, existing_content)
+            else:
+                existing_content = (existing_content + f"\n\n{new_block}").strip()
+            
+            text_file_path.write_text(existing_content, encoding="utf-8")
+            database.update_extracted_text(self.file_id, str(text_file_path))
+            database.update_file_page_status(self.file_id, tot_p, [cur_p])
+
+            await self._send_ws_json({
+                "type": "live_text",
+                "file_id": self.file_id,
+                "text": existing_content,
+                "total_pages": tot_p,
+                "status_message": f"Captured Page {cur_p} Text via Manual Control!"
+            })
+
 
     async def _frame_broadcaster(self):
         """Captures screenshots continuously and sends binary/JPEG frames over WebSocket."""

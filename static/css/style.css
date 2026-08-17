@@ -802,3 +802,32 @@ body {
     box-shadow: 0 0 6px rgba(59, 130, 246, 0.6);
 }
 
+/* Manual Navigation Toolbar */
+.manual-nav-bar {
+    background-color: var(--bg-surface);
+    border-bottom: 1px solid var(--border-color);
+    padding: 6px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.nav-btn-group, .nav-jump-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-success-bright {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.4);
+    border: none;
+}
+
+.btn-success-bright:hover {
+    background: linear-gradient(135deg, #059669, #047857);
+}
+
+

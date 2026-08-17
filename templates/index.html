@@ -127,8 +127,27 @@
                     </div>
                 </div>
 
+                <!-- MANUAL PAGE NAVIGATION & CAPTURE TOOLBAR -->
+                <div class="manual-nav-bar">
+                    <div class="nav-btn-group">
+                        <button class="btn btn-sm btn-secondary" onclick="manualPrevPage()" title="Scroll Back 1 Page">⏮️ Prev Page</button>
+                        <button class="btn btn-sm btn-secondary" onclick="manualNextPage()" title="Scroll Forward 1 Page">Next Page ⏭️</button>
+                    </div>
+
+                    <div class="nav-jump-group">
+                        <span style="font-size:12px; color:var(--text-secondary); font-weight:600;">Jump:</span>
+                        <input type="number" id="manual-page-input" min="1" max="300" placeholder="Page #" style="width:70px; padding:4px 8px; border-radius:4px; border:1px solid var(--border-color); background:var(--bg-main); color:white;">
+                        <button class="btn btn-sm btn-primary" onclick="manualJumpPage()">Go</button>
+                    </div>
+
+                    <button id="btn-manual-capture" class="btn btn-sm btn-success-bright" onclick="manualCapturePageText()" style="font-weight:700;">
+                        <span class="icon">📸</span> Capture Current Page Text (HTML/JS)
+                    </button>
+                </div>
+
                 <!-- Live Stream & Real-Time Text Split View -->
                 <div class="stream-split-container">
+
                     <div class="stream-wrapper" id="stream-wrapper">
                         <div class="stream-overlay" id="stream-overlay">
                             <div class="spinner"></div>

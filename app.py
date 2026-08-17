@@ -172,31 +172,47 @@ def get_file_page_status(file_id: str):
         try:
             import re
             content = text_file_path.read_text(encoding="utf-8")
-            found_pages = set(fetched_pages)
+            def has_real_body_content(block_str: str) -> bool:
+                real_len = 0
+                for line in block_str.split('\n'):
+                    l = line.strip()
+                    if not l or l.startswith("==="):
+                        continue
+                    if l in ["Page", "/", "\\"] or re.match(r'^Page\s+\d+\s*(?:of|\/)\s*\d+$', l, re.IGNORECASE) or re.match(r'^\d+$', l):
+                        continue
+                    real_len += len(l)
+                return real_len >= 15
 
-            # Match "📄 PAGE X OF Y", "Page X of Y", "Page X / Y"
-            for m in re.finditer(r'(?:📄\s*PAGE|Page)\s+(\d+)\s*(?:of|\/)\s*(\d+)', content, re.IGNORECASE):
-                p_num = int(m.group(1))
-                t_num = int(m.group(2))
-                if 0 < p_num <= 2000 and 0 < t_num <= 2000:
-                    found_pages.add(p_num)
-                    if t_num > total_pages:
-                        total_pages = t_num
-
-            # Match standalone "Page X of Y" in body text
-            for m in re.finditer(r'Page\s+(\d+)\s+of\s+(\d+)', content, re.IGNORECASE):
-                p_num = int(m.group(1))
-                t_num = int(m.group(2))
-                if 0 < p_num <= 2000 and 0 < t_num <= 2000:
-                    found_pages.add(p_num)
-                    if t_num > total_pages:
-                        total_pages = t_num
-
-            # Match "=== SECTION X ==="
-            for m in re.finditer(r'SECTION\s+(\d+)', content, re.IGNORECASE):
-                p_num = int(m.group(1))
-                if 0 < p_num <= 2000:
-                    found_pages.add(p_num)
+            found_pages = set()
+            blocks = re.split(r'================================================================================\n📄 PAGE (\d+) OF (\d+)\n================================================================================', content)
+            
+            # Pattern matched blocks: [preamble, page_1, total_1, body_1, page_2, total_2, body_2, ...]
+            if len(blocks) > 1:
+                i = 1
+                while i < len(blocks) - 2:
+                    p_num = int(blocks[i])
+                    t_num = int(blocks[i+1])
+                    body_text = blocks[i+2]
+                    if 0 < p_num <= 2000 and 0 < t_num <= 2000:
+                        if t_num > total_pages:
+                            total_pages = t_num
+                        if has_real_body_content(body_text):
+                            found_pages.add(p_num)
+                    i += 3
+            else:
+                # Fallback scan for other text formats
+                for m in re.finditer(r'(?:📄\s*PAGE|Page)\s+(\d+)\s*(?:of|\/)\s*(\d+)', content, re.IGNORECASE):
+                    p_num = int(m.group(1))
+                    t_num = int(m.group(2))
+                    if 0 < p_num <= 2000 and 0 < t_num <= 2000:
+                        if t_num > total_pages:
+                            total_pages = t_num
+                        # Find surrounding snippet
+                        start_idx = max(0, m.start() - 50)
+                        end_idx = min(len(content), m.end() + 300)
+                        snippet = content[start_idx:end_idx]
+                        if has_real_body_content(snippet):
+                            found_pages.add(p_num)
 
             if found_pages and total_pages <= 0:
                 total_pages = max(found_pages)
@@ -206,6 +222,7 @@ def get_file_page_status(file_id: str):
                 database.update_file_page_status(file_id, total_pages, fetched_pages)
         except Exception as scan_err:
             logger.warning(f"Error parsing page status from text file: {scan_err}")
+
 
     if total_pages <= 0:
         total_pages = 67  # Fallback default for display if undiscovered
