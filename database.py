@@ -95,10 +95,12 @@ def get_all_files(grade_filter: Optional[str] = None, status_filter: Optional[st
         query += " AND grade = ?"
         params.append(grade_filter)
         
-    if status_filter == "downloaded":
-        query += " AND downloaded = 1"
-    elif status_filter == "pending":
-        query += " AND downloaded = 0"
+    if status_filter == "completed" or status_filter == "downloaded":
+        query += " AND (downloaded = 1 OR text_extracted = 1)"
+    elif status_filter == "in_progress":
+        query += " AND (downloaded = 0 AND text_extracted = 0) AND (last_page > 1 OR (fetched_pages_json IS NOT NULL AND fetched_pages_json != '[]'))"
+    elif status_filter == "todo" or status_filter == "pending":
+        query += " AND (downloaded = 0 AND text_extracted = 0) AND (last_page <= 1 AND (fetched_pages_json IS NULL OR fetched_pages_json = '[]'))"
         
     if search:
         query += " AND (subject LIKE ? OR grade LIKE ? OR file_id LIKE ?)"
@@ -106,6 +108,7 @@ def get_all_files(grade_filter: Optional[str] = None, status_filter: Optional[st
         params.extend([pattern, pattern, pattern])
         
     query += " ORDER BY grade ASC, subject ASC"
+
     
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -224,14 +227,22 @@ def get_stats() -> Dict[str, Any]:
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) as total FROM files")
         total = cursor.fetchone()["total"]
-        cursor.execute("SELECT COUNT(*) as downloaded FROM files WHERE downloaded = 1")
-        downloaded = cursor.fetchone()["downloaded"]
+        cursor.execute("SELECT COUNT(*) as completed FROM files WHERE downloaded = 1 OR text_extracted = 1")
+        completed = cursor.fetchone()["completed"]
+        cursor.execute("SELECT COUNT(*) as in_progress FROM files WHERE (downloaded = 0 AND text_extracted = 0) AND (last_page > 1 OR (fetched_pages_json IS NOT NULL AND fetched_pages_json != '[]'))")
+        in_progress = cursor.fetchone()["in_progress"]
+        cursor.execute("SELECT COUNT(*) as todo FROM files WHERE (downloaded = 0 AND text_extracted = 0) AND (last_page <= 1 AND (fetched_pages_json IS NULL OR fetched_pages_json = '[]'))")
+        todo = cursor.fetchone()["todo"]
         cursor.execute("SELECT COUNT(DISTINCT grade) as grades FROM files")
         grades = cursor.fetchone()["grades"]
         return {
             "total": total,
-            "downloaded": downloaded,
-            "pending": total - downloaded,
+            "completed": completed,
+            "in_progress": in_progress,
+            "todo": todo,
+            "downloaded": completed,
+            "pending": todo,
             "grades_count": grades
         }
+
 

@@ -3,11 +3,11 @@ let currentFileObj = null;
 let ws = null;
 let jsEnabled = false;
 let allFiles = [];
+let currentTab = 'todo';
 
 // DOM Elements
 const searchInput = document.getElementById('search-input');
 const gradeFilter = document.getElementById('grade-filter');
-const statusFilter = document.getElementById('status-filter');
 const filesList = document.getElementById('files-list');
 
 const activeGrade = document.getElementById('active-grade');
@@ -31,25 +31,56 @@ document.addEventListener('DOMContentLoaded', () => {
     setupGlobalContextMenuDismiss();
 });
 
-// Fetch Stats
+// Tab Switcher Handler (To Do, In Progress, Completed)
+function switchSidebarTab(tabName) {
+    currentTab = tabName;
+    const tabMap = {
+        'todo': 'tab-todo',
+        'in_progress': 'tab-in-progress',
+        'completed': 'tab-completed'
+    };
+
+    Object.keys(tabMap).forEach(key => {
+        const btn = document.getElementById(tabMap[key]);
+        if (btn) {
+            if (key === tabName) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        }
+    });
+
+    fetchFiles();
+}
+
+// Fetch Stats & Update 3-Tab Count Badges
 async function fetchStats() {
     try {
         const resp = await fetch('/api/stats');
         const data = await resp.json();
         document.getElementById('stat-total').textContent = data.total || 0;
-        document.getElementById('stat-downloaded').textContent = data.downloaded || 0;
-        document.getElementById('stat-pending').textContent = data.pending || 0;
+        document.getElementById('stat-downloaded').textContent = data.completed || data.downloaded || 0;
+        document.getElementById('stat-pending').textContent = data.todo || data.pending || 0;
+
+        const countTodo = document.getElementById('tab-count-todo');
+        const countInProgress = document.getElementById('tab-count-in-progress');
+        const countCompleted = document.getElementById('tab-count-completed');
+
+        if (countTodo) countTodo.textContent = data.todo || 0;
+        if (countInProgress) countInProgress.textContent = data.in_progress || 0;
+        if (countCompleted) countCompleted.textContent = data.completed || 0;
     } catch (e) {
         console.error('Error fetching stats:', e);
     }
 }
 
-// Fetch Files List
+// Fetch Files List with 3-Tab Status Filter
 async function fetchFiles() {
     try {
-        const search = searchInput.value;
-        const grade = gradeFilter.value;
-        const status = statusFilter.value;
+        const search = searchInput ? searchInput.value : '';
+        const grade = gradeFilter ? gradeFilter.value : '';
+        const status = currentTab;
 
         const params = new URLSearchParams();
         if (search) params.append('search', search);
@@ -62,8 +93,9 @@ async function fetchFiles() {
         updateGradeFilterOptions(allFiles);
         renderFilesList(allFiles);
         document.getElementById('file-count-badge').textContent = `${allFiles.length} items`;
+        fetchStats();
     } catch (e) {
-        filesList.innerHTML = `<div class="empty-state">Failed loading files: ${e.message}</div>`;
+        if (filesList) filesList.innerHTML = `<div class="empty-state">Failed loading files: ${e.message}</div>`;
     }
 }
 
@@ -84,20 +116,27 @@ function updateGradeFilterOptions(files) {
 
 function renderFilesList(files) {
     if (files.length === 0) {
-        filesList.innerHTML = '<div class="empty-state">No matching files found. Click "Extract KICD Links" above.</div>';
+        filesList.innerHTML = `<div class="empty-state">No files found in <strong>${currentTab.replace('_', ' ')}</strong>.</div>`;
         return;
     }
 
     filesList.innerHTML = files.map(f => {
-        const isDownloaded = f.downloaded === 1;
+        const isDownloaded = f.downloaded === 1 || f.text_extracted === 1;
+        const hasProgress = !isDownloaded && ((f.last_page && f.last_page > 1) || (f.fetched_pages_json && f.fetched_pages_json !== '[]'));
         const isActive = f.file_id === currentFileId;
+        
+        let statusTag = `<span class="status-tag pending">📋 To Do</span>`;
+        if (isDownloaded) {
+            statusTag = `<span class="status-tag downloaded">✅ Done</span>`;
+        } else if (hasProgress) {
+            statusTag = `<span class="status-tag warning" style="background:rgba(249,115,22,0.2); color:#f97316;">⏳ In Progress</span>`;
+        }
+
         return `
             <div class="file-card ${isActive ? 'active' : ''}" onclick="selectFile('${f.file_id}')">
                 <div class="file-card-header">
                     <span class="file-grade">${escapeHtml(f.grade)}</span>
-                    <span class="status-tag ${isDownloaded ? 'downloaded' : 'pending'}">
-                        ${isDownloaded ? 'Downloaded' : 'Pending'}
-                    </span>
+                    ${statusTag}
                 </div>
                 <div class="file-subject">${escapeHtml(f.subject)}</div>
                 <div class="file-id-text">ID: ${f.file_id}</div>
@@ -123,6 +162,7 @@ function renderFilesList(files) {
         `;
     }).join('');
 }
+
 
 function selectFile(fileId) {
     const fileObj = allFiles.find(f => f.file_id === fileId);

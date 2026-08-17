@@ -52,6 +52,19 @@
                     <span class="badge" id="file-count-badge">0 items</span>
                 </div>
 
+                <!-- 3 TAB NAVIGATION: To Do, In Progress, Completed -->
+                <div class="sidebar-tabs" id="sidebar-tabs">
+                    <button class="tab-btn active" id="tab-todo" onclick="switchSidebarTab('todo')">
+                        <span>📋</span> To Do <span class="tab-badge" id="tab-count-todo">0</span>
+                    </button>
+                    <button class="tab-btn" id="tab-in-progress" onclick="switchSidebarTab('in_progress')">
+                        <span>⏳</span> In Progress <span class="tab-badge" id="tab-count-in-progress">0</span>
+                    </button>
+                    <button class="tab-btn" id="tab-completed" onclick="switchSidebarTab('completed')">
+                        <span>✅</span> Done <span class="tab-badge" id="tab-count-completed">0</span>
+                    </button>
+                </div>
+
                 <!-- Filters & Search -->
                 <div class="sidebar-controls">
                     <input type="text" id="search-input" placeholder="Search subject or grade..." oninput="fetchFiles()">
@@ -59,13 +72,9 @@
                         <select id="grade-filter" onchange="fetchFiles()">
                             <option value="">All Grades</option>
                         </select>
-                        <select id="status-filter" onchange="fetchFiles()">
-                            <option value="">All Status</option>
-                            <option value="pending">Pending</option>
-                            <option value="downloaded">Downloaded</option>
-                        </select>
                     </div>
                 </div>
+
 
                 <!-- Custom URL Add Form -->
                 <div class="add-url-box">
