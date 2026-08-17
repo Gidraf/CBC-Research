@@ -35,6 +35,18 @@ class PlaywrightStreamSession:
         self.temp_dir = Path("temp_screenshots") / file_id
         self.accumulated_text_blocks = []
         self.seen_text_hashes = set()
+        self.captured_pages_set: set = set()
+
+        text_path = Path("extracted_text") / f"{file_id}_extracted.txt"
+        if text_path.exists():
+            try:
+                import re
+                txt = text_path.read_text(encoding="utf-8")
+                for pm in re.finditer(r'📄 PAGE (\d+) OF', txt):
+                    self.captured_pages_set.add(int(pm.group(1)))
+            except Exception:
+                pass
+
 
     async def _send_ws_json(self, data: dict):
         if self.websocket:
@@ -296,7 +308,9 @@ class PlaywrightStreamSession:
 
                     # Only count pages that contain TRULY FETCHED body content
                     captured_pages = set(p for p in page_map.keys() if has_real_page_content(page_map[p]))
+                    self.captured_pages_set.update(captured_pages)
                     missing_pages = sorted(list(required_pages - captured_pages))
+
 
                     # Inject translucent 0.7 green highlight on fetched page containers in Playwright viewer
                     if captured_pages:
@@ -647,7 +661,10 @@ class PlaywrightStreamSession:
                     cur_p = int(m.group(1) or m.group(2))
                     tot_p = int(m.group(3))
 
+            self.captured_pages_set.add(cur_p)
+
             # Inject vivid glowing green border & page badge directly into DOM for live screenshot stream
+
             try:
                 await self.page.evaluate("""(targetP) => {
                     let containers = document.querySelectorAll('.ndfHFb-c4Qvld, [role="region"], div[id*="page"]');
@@ -712,6 +729,43 @@ class PlaywrightStreamSession:
         """Captures screenshots continuously and sends binary/JPEG frames over WebSocket."""
         while self.is_running and self.page:
             try:
+                # Apply permanent sticky green border & page badge to all captured pages in DOM
+                if self.captured_pages_set:
+                    try:
+                        await self.page.evaluate("""(fetchedList) => {
+                            let setObj = new Set(fetchedList);
+                            let containers = document.querySelectorAll('.ndfHFb-c4Qvld, [role="region"], div[id*="page"]');
+                            containers.forEach((el, idx) => {
+                                let pNum = idx + 1;
+                                if (setObj.has(pNum)) {
+                                    el.style.border = '6px solid #22c55e';
+                                    el.style.boxShadow = '0 0 30px rgba(34, 197, 94, 0.95), inset 0 0 40px rgba(34, 197, 94, 0.35)';
+                                    el.style.position = 'relative';
+                                    
+                                    let badge = el.querySelector('.vivid-capture-badge');
+                                    if (!badge) {
+                                        badge = document.createElement('div');
+                                        badge.className = 'vivid-capture-badge';
+                                        badge.style.position = 'absolute';
+                                        badge.style.top = '15px';
+                                        badge.style.right = '15px';
+                                        badge.style.backgroundColor = 'rgba(34, 197, 94, 0.95)';
+                                        badge.style.color = '#ffffff';
+                                        badge.style.padding = '8px 18px';
+                                        badge.style.borderRadius = '20px';
+                                        badge.style.fontWeight = '800';
+                                        badge.style.fontSize = '14px';
+                                        badge.style.boxShadow = '0 4px 15px rgba(0, 0, 0, 0.6)';
+                                        badge.style.zIndex = '999999';
+                                        badge.innerHTML = '📄 PAGE ' + pNum + ' CAPTURED ✓';
+                                        el.appendChild(badge);
+                                    }
+                                }
+                            });
+                        }""", list(self.captured_pages_set))
+                    except Exception:
+                        pass
+
                 screenshot_bytes = await self.page.screenshot(type="jpeg", quality=60)
                 page_title = await self.page.title()
                 page_url = self.page.url
@@ -729,12 +783,12 @@ class PlaywrightStreamSession:
                     "file_id": self.file_id
                 })
 
-
                 await asyncio.sleep(0.1)
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except Exception:
                 await asyncio.sleep(0.5)
+
 
     async def stop(self):
         await self.stop_auto_scroll()
