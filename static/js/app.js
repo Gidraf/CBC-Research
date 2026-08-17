@@ -166,6 +166,27 @@ async function loadPageStatus(fileId) {
     }
 }
 
+let flashTimer = null;
+function flashScreenHighlight(pageNum, isCaptured = true) {
+    const overlay = document.getElementById('stream-flash-overlay');
+    const badge = document.getElementById('stream-page-badge');
+    
+    if (badge) {
+        badge.textContent = `📄 PAGE ${pageNum} ${isCaptured ? 'CAPTURED ✓' : 'SELECTED'}`;
+        badge.className = 'stream-page-badge highlight';
+    }
+    
+    if (overlay) {
+        overlay.className = 'stream-flash-overlay active';
+    }
+
+    if (flashTimer) clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => {
+        if (overlay) overlay.className = 'stream-flash-overlay';
+        if (badge) badge.className = 'stream-page-badge';
+    }, 1200);
+}
+
 function renderPageGrid(statusObj) {
     const badge = document.getElementById('page-summary-badge');
     const grid = document.getElementById('page-pills-grid');
@@ -196,7 +217,7 @@ function renderPageGrid(statusObj) {
         
         pill.className = pillClass;
         pill.textContent = isFetched ? `P${p} ✓` : `P${p} ⏳`;
-        pill.title = isFetched ? `Page ${p} fetched` : `Page ${p} missing - click to select`;
+        pill.title = isFetched ? `Page ${p} fetched` : `Page ${p} missing - click to select & highlight`;
         
         pill.onclick = () => {
             if (selectedPagesSet.has(p)) {
@@ -205,10 +226,15 @@ function renderPageGrid(statusObj) {
                 selectedPagesSet.add(p);
             }
             renderPageGrid(currentPageStatus);
+            flashScreenHighlight(p, isFetched);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action: 'manual_jump', page: p }));
+            }
         };
         grid.appendChild(pill);
     }
 }
+
 
 
 function selectAllMissingPages() {
@@ -470,12 +496,17 @@ function connectWebSocket(fileId) {
                 liveBox.value = data.text;
                 liveBox.scrollTop = liveBox.scrollHeight;
             }
+            if (data.status_message) {
+                const matchP = data.status_message.match(/Page\s+(\d+)/i);
+                if (matchP) flashScreenHighlight(parseInt(matchP[1]), true);
+            }
             if (data.total_pages || data.pages_captured) {
                 if (data.total_pages) currentPageStatus.total_pages = data.total_pages;
                 if (data.missing_pages) currentPageStatus.missing_pages = data.missing_pages;
                 loadPageStatus(currentFileId);
             }
         }
+
  else if (data.type === 'download_complete') {
             alert(`✅ File Downloaded Successfully to: ${data.local_path}`);
             fetchStats();
