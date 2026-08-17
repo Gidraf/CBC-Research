@@ -298,11 +298,28 @@ class PlaywrightStreamSession:
                     captured_pages = set(p for p in page_map.keys() if has_real_page_content(page_map[p]))
                     missing_pages = sorted(list(required_pages - captured_pages))
 
+                    # Inject translucent 0.7 green highlight on fetched page containers in Playwright viewer
+                    if captured_pages:
+                        try:
+                            await self.page.evaluate("""(fetchedList) => {
+                                let setObj = new Set(fetchedList);
+                                let containers = document.querySelectorAll('.ndfHFb-c4Qvld, [role="region"]');
+                                containers.forEach((el, idx) => {
+                                    if (setObj.has(idx + 1)) {
+                                        el.style.border = '4px solid rgba(34, 197, 94, 0.7)';
+                                        el.style.boxShadow = '0 0 12px rgba(34, 197, 94, 0.7)';
+                                    }
+                                });
+                            }""", list(captured_pages))
+                        except Exception:
+                            pass
+
                     # Save continuous progress for pages with real content
                     formatted_pages = []
                     for p in sorted(captured_pages):
                         p_content = "\n".join(page_map[p])
                         formatted_pages.append(f"================================================================================\n📄 PAGE {p} OF {total_pages}\n================================================================================\n\n{p_content}")
+
 
                     if formatted_pages:
                         accumulated_full_text = "\n\n".join(formatted_pages)
