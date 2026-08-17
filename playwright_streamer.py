@@ -729,34 +729,49 @@ class PlaywrightStreamSession:
         """Captures screenshots continuously and sends binary/JPEG frames over WebSocket."""
         while self.is_running and self.page:
             try:
-                # Apply permanent sticky green border & page badge to all captured pages in DOM
+                # Apply permanent sticky non-flashing CSS styles to captured pages in DOM
                 if self.captured_pages_set:
                     try:
                         await self.page.evaluate("""(fetchedList) => {
+                            let styleTag = document.getElementById('py-permanent-style');
+                            if (!styleTag && document.head) {
+                                styleTag = document.createElement('style');
+                                styleTag.id = 'py-permanent-style';
+                                styleTag.innerHTML = `
+                                    .captured-page-permanent {
+                                        border: 6px solid #22c55e !important;
+                                        box-shadow: 0 0 30px rgba(34, 197, 94, 0.95), inset 0 0 40px rgba(34, 197, 94, 0.35) !important;
+                                        position: relative !important;
+                                    }
+                                    .vivid-capture-badge {
+                                        position: absolute !important;
+                                        top: 15px !important;
+                                        right: 15px !important;
+                                        background-color: rgba(34, 197, 94, 0.95) !important;
+                                        color: #ffffff !important;
+                                        padding: 8px 18px !important;
+                                        border-radius: 20px !important;
+                                        font-weight: 800 !important;
+                                        font-size: 14px !important;
+                                        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.6) !important;
+                                        z-index: 999999 !important;
+                                    }
+                                `;
+                                document.head.appendChild(styleTag);
+                            }
+
                             let setObj = new Set(fetchedList);
                             let containers = document.querySelectorAll('.ndfHFb-c4Qvld, [role="region"], div[id*="page"]');
                             containers.forEach((el, idx) => {
                                 let pNum = idx + 1;
                                 if (setObj.has(pNum)) {
-                                    el.style.border = '6px solid #22c55e';
-                                    el.style.boxShadow = '0 0 30px rgba(34, 197, 94, 0.95), inset 0 0 40px rgba(34, 197, 94, 0.35)';
-                                    el.style.position = 'relative';
-                                    
+                                    if (!el.classList.contains('captured-page-permanent')) {
+                                        el.classList.add('captured-page-permanent');
+                                    }
                                     let badge = el.querySelector('.vivid-capture-badge');
                                     if (!badge) {
                                         badge = document.createElement('div');
                                         badge.className = 'vivid-capture-badge';
-                                        badge.style.position = 'absolute';
-                                        badge.style.top = '15px';
-                                        badge.style.right = '15px';
-                                        badge.style.backgroundColor = 'rgba(34, 197, 94, 0.95)';
-                                        badge.style.color = '#ffffff';
-                                        badge.style.padding = '8px 18px';
-                                        badge.style.borderRadius = '20px';
-                                        badge.style.fontWeight = '800';
-                                        badge.style.fontSize = '14px';
-                                        badge.style.boxShadow = '0 4px 15px rgba(0, 0, 0, 0.6)';
-                                        badge.style.zIndex = '999999';
                                         badge.innerHTML = '📄 PAGE ' + pNum + ' CAPTURED ✓';
                                         el.appendChild(badge);
                                     }
@@ -765,6 +780,7 @@ class PlaywrightStreamSession:
                         }""", list(self.captured_pages_set))
                     except Exception:
                         pass
+
 
                 screenshot_bytes = await self.page.screenshot(type="jpeg", quality=60)
                 page_title = await self.page.title()
