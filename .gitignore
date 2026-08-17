@@ -1,0 +1,59 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# GITIGNORE — CBC Research & Google Drive Extractor
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Python cache & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# Local databases & data volumes
+*.db
+*.sqlite
+*.sqlite3
+gdrive_files.db
+postgres_data/
+minio_data/
+redis_data/
+
+# Local downloads, text extractions & zips
+downloads/
+extracted_text/
+kicd_curriculum_designs/
+*.zip
+*.pdf
+*.tar
+*.gz
+
+# Logs & celery
+*.log
+celerybeat-schedule
+celerybeat.pid
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE & editor files
+.idea/
+.vscode/
+*.swp
+*.swo
