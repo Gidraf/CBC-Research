@@ -471,6 +471,64 @@ body {
     resize: none;
 }
 
+/* User-Friendly Auto-Height Modal & Form Layout */
+.modal-card.auto-height {
+    height: auto !important;
+    max-height: 85vh;
+    width: 540px;
+}
+
+.langfuse-form-group {
+    margin-bottom: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.langfuse-form-group label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #e2e8f0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.langfuse-input {
+    width: 100%;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background-color: #0f172a;
+    border: 1px solid #334155;
+    color: #f8fafc;
+    font-size: 13px;
+    font-family: inherit;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+}
+
+.langfuse-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+    background-color: #1e293b;
+}
+
+.langfuse-info-box {
+    background: rgba(59, 130, 246, 0.08);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #94a3b8;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+
 .stream-split-container {
     flex: 1;
     display: flex;
