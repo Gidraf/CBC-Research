@@ -277,6 +277,21 @@ async def trigger_fetch_targeted_pages(file_id: str, req: FetchPagesRequest):
 def get_system_stats():
     return database.get_stats()
 
+@app.get("/api/files/{file_id}/pages")
+def get_file_page_extractions_api(file_id: str):
+    file_rec = database.get_file_by_id(file_id)
+    if not file_rec:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    pages = database.get_page_extractions(file_id)
+    return {
+        "success": True,
+        "file_id": file_id,
+        "count": len(pages),
+        "pages": pages
+    }
+
+
 class LangfuseSyncRequest(BaseModel):
     public_key: str
     secret_key: str

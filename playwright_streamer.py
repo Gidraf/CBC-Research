@@ -713,6 +713,8 @@ class PlaywrightStreamSession:
                 self.captured_pages_set.add(p_num)
                 page_body = "\n".join(p_lines)
                 new_block = f"================================================================================\n📄 PAGE {p_num} OF {tot_p}\n================================================================================\n\n{page_body.strip()}"
+                database.save_page_extraction(self.file_id, p_num, tot_p, page_body.strip())
+
                 
                 page_pattern = rf"================================================================================\n📄 PAGE {p_num} OF \d+\n================================================================================\n\n[\s\S]*?(?================================================================================|$)"
                 if re.search(page_pattern, existing_content):

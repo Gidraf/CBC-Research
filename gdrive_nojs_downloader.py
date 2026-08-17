@@ -71,8 +71,15 @@ def download_gdrive_no_js_python(file_id: str, output_path: str = None) -> bool:
             if pdf_bytes.startswith(b'%PDF'):
                 Path(output_path).parent.mkdir(parents=True, exist_ok=True)
                 Path(output_path).write_bytes(pdf_bytes)
-                database.mark_as_downloaded(file_id, output_path, len(pdf_bytes))
+                
+                # Upload to MinIO S3 Object Storage
+                import storage
+                minio_key = f"{file_id}_document.pdf"
+                storage.upload_bytes(pdf_bytes, minio_key, content_type="application/pdf")
+                
+                database.mark_as_downloaded(file_id, output_path, len(pdf_bytes), minio_object_key=minio_key)
                 return True
+
 
         return False
 
