@@ -130,9 +130,10 @@ services:
     restart: always
     command: server /data --console-address ":9001"
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9005:9000"
+      - "9006:9001"
     environment:
+
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     networks:
@@ -159,8 +160,9 @@ services:
     container_name: gdrive_redis
     restart: always
     ports:
-      - "6379:6379"
+      - "6382:6379"
     networks:
+
       - app-network
     volumes:
       - redis_data:/data
