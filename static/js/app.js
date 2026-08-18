@@ -939,7 +939,8 @@ async function performResetText(fileId) {
                     ws.send(JSON.stringify({ action: 'reset_text' }));
                 }
 
-                fetchPageStatusGrid(fileId);
+                loadPageStatus(fileId);
+
             }
 
             fetchFiles();
