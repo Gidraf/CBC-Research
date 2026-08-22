@@ -5,6 +5,7 @@
  * Scriptable, or as a Bookmarklet on any Google Drive PDF document view page.
  *
  * Features:
+ *  - Compatible with Google Drive TrustedTypes CSP restrictions.
  *  - Stores Langfuse credentials (Public Key, Secret Key, Host, Dataset) in localStorage.
  *  - Prompts for missing credentials with an interactive mobile modal dialog.
  *  - Extracts DOM text, detects page numbers, and structures per-page blocks.
@@ -21,6 +22,50 @@
 
     const DEFAULT_HOST = 'https://cloud.langfuse.com';
     const DEFAULT_DATASET = 'CBC_Research_Curriculum_Designs';
+
+    // ── 0. TRUSTED TYPES CSP BYPASS HELPER ────────────────────────────────────
+    function setTrustedHTML(element, htmlString) {
+        if (!element) return;
+
+        // Try TrustedTypes policy first if supported
+        if (window.trustedTypes && window.trustedTypes.createPolicy) {
+            try {
+                let policy = window.trustedTypes.defaultPolicy;
+                if (!policy) {
+                    try {
+                        policy = window.trustedTypes.createPolicy('gdriveLangfusePolicy', {
+                            createHTML: (s) => s
+                        });
+                    } catch (e) {
+                        // Policy might exist under default or another name
+                    }
+                }
+                if (policy && policy.createHTML) {
+                    element.innerHTML = policy.createHTML(htmlString);
+                    return;
+                }
+            } catch (err) {
+                // Fallback to DOM parsing
+            }
+        }
+
+        // Fallback DOM node building via DOMParser (bypasses direct innerHTML assignment)
+        try {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlString, 'text/html');
+            element.replaceChildren(...doc.body.childNodes);
+            return;
+        } catch (e) {}
+
+        // Secondary fallback via Range
+        try {
+            const range = document.createRange();
+            const fragment = range.createContextualFragment(htmlString);
+            element.replaceChildren(fragment);
+        } catch (e) {
+            element.textContent = htmlString.replace(/<[^>]*>?/gm, '');
+        }
+    }
 
     // ── 1. HELPERS & CREDENTIALS MANAGEMENT ──────────────────────────────────
     function getStoredCredentials() {
@@ -61,7 +106,7 @@
 
         const creds = getStoredCredentials();
 
-        modal.innerHTML = `
+        setTrustedHTML(modal, `
             <div style="background:#0f172a; border:1px solid #38bdf8; border-radius:12px; padding:20px; width:100%; max-width:420px; box-shadow:0 20px 50px rgba(0,0,0,0.9); color:white; box-sizing:border-box;">
                 <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #334155; padding-bottom:10px; margin-bottom:14px;">
                     <h3 style="margin:0; font-size:16px; font-weight:700; color:#38bdf8;">⚙️ Langfuse API Credentials</h3>
@@ -91,7 +136,7 @@
                     <button id="lf-modal-save" style="padding:10px 20px; border-radius:6px; background:linear-gradient(135deg, #22c55e, #16a34a); color:white; border:none; font-weight:700; cursor:pointer;">💾 Save Keys</button>
                 </div>
             </div>
-        `;
+        `);
 
         modal.style.display = 'flex';
 
@@ -274,11 +319,11 @@
             color: #ffffff;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             font-size: 12px;
-            width: 290px;
+            width: 280px;
             box-sizing: border-box;
         `;
 
-        hud.innerHTML = `
+        setTrustedHTML(hud, `
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; border-bottom:1px solid #334155; padding-bottom:6px;">
                 <strong style="color:#38bdf8; font-size:13px;">🚀 Langfuse Mobile Sync</strong>
                 <button id="lf-btn-close" style="background:none; border:none; color:#94a3b8; font-size:16px; cursor:pointer;">&times;</button>
@@ -292,7 +337,7 @@
                 <button id="lf-btn-keys" style="flex:1; background:#334155; color:white; border:none; padding:6px; border-radius:6px; font-size:11px; cursor:pointer;">⚙️ Keys</button>
                 <button id="lf-btn-copy" style="flex:1; background:#334155; color:white; border:none; padding:6px; border-radius:6px; font-size:11px; cursor:pointer;">📋 Copy Text</button>
             </div>
-        `;
+        `);
 
         document.body.appendChild(hud);
 
@@ -363,11 +408,11 @@
         const creds = getStoredCredentials();
 
         const keyStatus = (creds.pk && creds.sk) ? '<span style="color:#22c55e;">🔑 Keys Configured</span>' : '<span style="color:#f97316;">⚠️ Missing Keys</span>';
-        statusEl.innerHTML = `
+        setTrustedHTML(statusEl, `
             <strong>Doc:</strong> ${extractDocTitle().substring(0, 24)}...<br>
             <strong>Pages:</strong> ${res.capturedPagesCount} / ${res.totalPages} (${res.charCount} chars)<br>
             <strong>Status:</strong> ${keyStatus}
-        `;
+        `);
     }
 
     // ── 6. INITIALIZATION ───────────────────────────────────────────────────
